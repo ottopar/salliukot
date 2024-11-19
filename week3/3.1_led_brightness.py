@@ -3,6 +3,7 @@ from machine import Pin, PWM
 from fifo import Fifo
 import time
 
+#CLASS START
 class RotaryKnob:
     def __init__(self, rotarybtn_pin, a_pin, b_pin, led_pin, frequency):
         self.sw = Pin(rotarybtn_pin, mode = Pin.IN, pull = Pin.PULL_UP)
@@ -36,7 +37,7 @@ class RotaryKnob:
             self.fifo.put(-1)
         else:
             self.fifo.put(1)
-    #MAIN CODE
+            
     def execute(self):
         if self.fifo.has_data(): #IF self.fifo has any values
             value = self.fifo.get()
@@ -60,19 +61,23 @@ class RotaryKnob:
         self.brightness = value
         self.led_pwm.duty_u16(value)
         self.bounce_filter()
-    #CLAMP FUNCTION (CLAMP GIVEN VALUE BETWEEN TWO GIVEN VALUE)
+    
+    #CLAMP FUNCTION (CLAMP VALUE BETWEEN TWO GIVEN VALUES)
     def clamp(self, value, minimum, maximum):
         if(value > maximum):
             value = maximum
         elif(value < minimum):
             value = minimum
         return value
+    
     #ADD DELAY BETWEEN ENCODERS BUTTON PRESS
     def bounce_filter(self):
         if(time.ticks_ms() - self.last_press > 250 and not self.can_press):
             self.can_press = True
-#ASSIGN ONE ROTARY    
+#CLASS END
+
+#MAIN START  
 knob1 = RotaryKnob(12, 10, 11, 22, 1000) #(ROTARY_BTN_PIN, OUTER_ENCODER, INNER_ENCODER, FREQUENCY)
-#MAIN LOOP
 while True:
     knob1.execute() #RUN CODE
+#MAIN END
