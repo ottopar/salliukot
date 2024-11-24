@@ -6,6 +6,7 @@ import time
 ## Kehitykset ##
 """ Display class?
     classeille funktiot, jotka tekee mitä pitää,,..!!
+    no moikka jätkät <3<3<3
 """
 
 
