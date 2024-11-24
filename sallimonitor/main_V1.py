@@ -2,6 +2,9 @@ from machine import Pin, I2C
 from ssd1306 import SSD1306_I2C
 from fifo import Fifo
 import time
+import json
+import io
+import os
 
 ## Kehitykset ##
 """ Display class?
@@ -182,7 +185,43 @@ class History:
         
         self.i2c = I2C(1, scl=Pin(15), sda=Pin(14), freq=400000)
         self.OLED = SSD1306_I2C(128, 64, self.i2c)
+        
+        self.save_data:list = [] # create empty save_data variable.
+        self.initialize_json() #check if savedata.json exist. if not create new .json file inside root directory.
+        
+        self.save_measurement(69, 666, 81, 123) #[REMOVE THIS] just testing to append new data to json
+        print(self.save_data[0]["HR"]) #[REMOVE] check the first's heart rate
     
+    def initialize_json(self): 
+        try:
+            with open("savedata.json", "r") as f: #with open("PATH", "r=READ/w=WRITE") as VARIABLE
+                #IF saveddata.json exists!
+                self.save_data = json.load(f) #loads json data and adds it to our "save_data" variable. 
+                print("savedata.json file found.")
+        except:
+            #IF savedata.json does not exist!
+            new_data = json.dumps(self.save_data) 
+            with open("savedata.json", "w") as f: #with open("PATH", "r=READ/w=WRITE") as VARIABLE
+                f.write(new_data)
+                
+            print("Save data not found. Created new savedata.json file in to root dictionary.")
+    
+    def save_measurement(self, ppi, hr, rmssd, sdnn):
+        new_entry = [ {
+            "PPI" : ppi,
+            "HR" : hr,
+            "rmssd" : rmssd,
+            "sdnn" : sdnn
+            } ]
+        
+        self.save_data.append(new_entry)
+        self.write_to_json(self.save_data)
+        
+    def write_to_json(self, dictionary):
+        with open("savedata.json", "w") as f: #with open("PATH", "r=READ/w=WRITE") as VARIABLE
+            json.dump(dictionary, f)
+            print("new .json data saved.")
+            
     def draw(self):
         self.OLED.fill(0)  # Fill screen with black
         self.OLED.text("History", 0, 0, 1)
