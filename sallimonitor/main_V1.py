@@ -3,8 +3,6 @@ from ssd1306 import SSD1306_I2C
 from fifo import Fifo
 import time
 import json
-import io
-import os
 
 ## Kehitykset ##
 """ Display class?
@@ -190,8 +188,7 @@ class History:
         self.initialize_json() #check if savedata.json exist. if not create new .json file inside root directory.
         
         self.save_measurement(69, 666, 81, 123) #[REMOVE THIS] just testing to append new data to json
-        print(self.save_data[0]["HR"]) #[REMOVE] check the first's heart rate
-    
+        
     def initialize_json(self): 
         try:
             with open("savedata.json", "r") as f: #with open("PATH", "r=READ/w=WRITE") as VARIABLE
