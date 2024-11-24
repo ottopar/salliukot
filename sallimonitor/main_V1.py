@@ -178,7 +178,14 @@ class Kubios:
         
 class History:
     def __init__(self, rotary_encoder):
-            
+        """
+        TO-DO:
+            - Save actual data from measurements. 	[]
+            - Display the data.					 	[]
+            - Erase data history 					[]
+            - Add more TO-DO's...					[]
+        """
+        
         self.rotary_encoder = rotary_encoder
         
         self.i2c = I2C(1, scl=Pin(15), sda=Pin(14), freq=400000)
@@ -201,6 +208,13 @@ class History:
             with open("savedata.json", "w") as f: #with open("PATH", "w=WRITE") as VARIABLE
                 f.write(new_data)    
             print("Save data not found. Created new savedata.json file in to root directory.")
+    
+    def erase_history(self):
+        self.save_data.clear()
+        
+        with open("savedata.json", "w") as f: #with open("PATH", "w=WRITE") as VARIABLE
+            json.dump(self.save_data, f)
+            print("Erased all history data.")
     
     #creates a array obj of dictionary and appends it to our save_data variable and adds it to our savedata.json file.
     def save_measurement(self, ppi, hr, rmssd, sdnn):
