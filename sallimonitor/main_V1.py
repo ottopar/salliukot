@@ -191,18 +191,18 @@ class History:
         
     def initialize_json(self): 
         try:
-            with open("savedata.json", "r") as f: #with open("PATH", "r=READ/w=WRITE") as VARIABLE
-                #IF saveddata.json exists!
-                self.save_data = json.load(f) #loads json data and adds it to our "save_data" variable. 
+            #IF savedata.json EXISTS => load it to our self.save_data!
+            with open("savedata.json", "r") as f: #with open("PATH", "r=READ") as VARIABLE
+                self.save_data = json.load(f) #loads json data and adds it to "save_data" -variable to keep it in sync for new entries. 
                 print("savedata.json file found.")
         except:
-            #IF savedata.json does not exist!
+            #IF savedata.json does NOT exist => create new savedata.json in root!
             new_data = json.dumps(self.save_data) 
-            with open("savedata.json", "w") as f: #with open("PATH", "r=READ/w=WRITE") as VARIABLE
-                f.write(new_data)
-                
-            print("Save data not found. Created new savedata.json file in to root dictionary.")
+            with open("savedata.json", "w") as f: #with open("PATH", "w=WRITE") as VARIABLE
+                f.write(new_data)    
+            print("Save data not found. Created new savedata.json file in to root directory.")
     
+    #creates a array obj of dictionary and appends it to our save_data variable and adds it to our savedata.json file.
     def save_measurement(self, ppi, hr, rmssd, sdnn):
         new_entry = [ {
             "PPI" : ppi,
@@ -212,11 +212,9 @@ class History:
             } ]
         
         self.save_data.append(new_entry)
-        self.write_to_json(self.save_data)
         
-    def write_to_json(self, dictionary):
-        with open("savedata.json", "w") as f: #with open("PATH", "r=READ/w=WRITE") as VARIABLE
-            json.dump(dictionary, f)
+        with open("savedata.json", "w") as f: #with open("PATH", "w=WRITE") as VARIABLE
+            json.dump(self.save_data, f)
             print("new .json data saved.")
             
     def draw(self):
