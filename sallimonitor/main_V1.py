@@ -204,7 +204,7 @@ class History:
                 print("savedata.json file found.")
         except:
             #IF savedata.json does NOT exist => create new savedata.json in root!
-            new_data = json.dumps(self.save_data) 
+            new_data = json.dumps(self.save_data) #dump empty
             with open("savedata.json", "w") as f: #with open("PATH", "w=WRITE") as VARIABLE
                 f.write(new_data)    
             print("Save data not found. Created new savedata.json file in to root directory.")
@@ -253,8 +253,6 @@ hr = HrMeasurement(rotary_encoder)
 hrv = HrvAnalysis(rotary_encoder)
 kubios = Kubios(rotary_encoder)
 history = History(rotary_encoder)
-
-
 
 # Main loop
 while True:
