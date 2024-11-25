@@ -195,6 +195,8 @@ class History:
         self.initialize_json() #check if savedata.json exist. if not create new .json file inside root directory.
         
         self.save_measurement(69, 666, 81, 123) #[REMOVE THIS] just testing to append new data to json
+        print(self.save_data[0]["HR"])
+        
         
     def initialize_json(self): 
         try:
@@ -218,12 +220,12 @@ class History:
     
     #creates a array obj of dictionary and appends it to our save_data variable and adds it to our savedata.json file.
     def save_measurement(self, ppi, hr, rmssd, sdnn):
-        new_entry = [ {
+        new_entry = {
             "PPI" : ppi,
             "HR" : hr,
             "rmssd" : rmssd,
             "sdnn" : sdnn
-            } ]
+            } 
         
         self.save_data.append(new_entry)
         
