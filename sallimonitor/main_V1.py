@@ -252,7 +252,9 @@ class History:
             with open("savedata.json", "w") as f: #with open("PATH", "w=WRITE") as VARIABLE
                 json.dump(self.save_data, f)
                 print(f"maximum data reached({self.max_save_data}), removing oldest data from list.")
-        else:
+        
+        #if not full just update json.
+        else: 
             with open("savedata.json", "w") as f: #with open("PATH", "w=WRITE") as VARIABLE
                 json.dump(self.save_data, f)
     
@@ -265,12 +267,12 @@ class History:
         self.OLED.text(f"rmssd: {str( self.save_data[i]['rmssd'] )}" , 0, 36, 1)
         self.OLED.text(f"sdnn: {str( self.save_data[i]['sdnn'] )}" , 0, 44, 1)
         
-    def draw(self, next_page):
+    def draw(self, page):
         self.OLED.fill(0)  # turn off all leds
         
         if len(self.save_data) > 0:
             self.OLED.text("History (" + str(self.current_page+1) + "/" + str(len(self.save_data))  + ")", 0, 0, 1)
-            self.display_history(next_page)
+            self.display_history(page)
         else:
             self.OLED.text("History", 0, 0, 1)
             self.OLED.text("No data.", 36, 28, 1)
@@ -297,7 +299,7 @@ class History:
                 self.current_page = 0
                 state = 0
                 
-            self.draw(self.current_page)
+        self.draw(self.current_page)
         
 rotary_encoder = RotaryEncoder()
 menu = MainMenu(rotary_encoder)
