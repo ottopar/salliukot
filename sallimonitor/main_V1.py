@@ -3,6 +3,7 @@ from ssd1306 import SSD1306_I2C
 from fifo import Fifo
 import time
 import json
+import random #REMOVE THIS FROM FINAL VERSION
 
 ## Kehitykset ##
 """ Display class?
@@ -48,9 +49,6 @@ class RotaryEncoder:
         if self.fifo.has_data():
             return self.fifo.get()
         return None
-    
-    
-    
 
 class MainMenu:
     def __init__(self, rotary_encoder):
@@ -167,7 +165,6 @@ class Kubios:
         self.OLED.text("to return", 0, 24, 1)
         self.OLED.show()  # Update the screen
         
-    
     def execute(self):
         global state
         if self.rotary_encoder.fifo.has_data():
@@ -181,7 +178,7 @@ class History:
         """
         TO-DO:
             - Save actual data from measurements. 	[]
-            - Display the data.					 	[]
+            - Display the data.					 	[X]
             - Erase data history 					[]
             - Add more TO-DO's...					[]
         """
@@ -191,12 +188,25 @@ class History:
         self.i2c = I2C(1, scl=Pin(15), sda=Pin(14), freq=400000)
         self.OLED = SSD1306_I2C(128, 64, self.i2c)
         
+        self.max_save_data = 25
+        self.current_page:int = 0
+        self.last_page:int = 0
+        
         self.save_data:list = [] # create empty save_data variable.
         self.initialize_json() #check if savedata.json exist. if not create new .json file inside root directory.
         
-        self.save_measurement(69, 666, 81, 123) #[REMOVE THIS] just testing to append new data to json
-        print(self.save_data[0]["HR"])
-        
+        ###REMOVE###
+        for i in range(3): #REMOVE THIS FROM FINAL VERSION
+            self.save_measurement(random.randint(60, 130), random.randint(55, 100), random.randint(13, 110), random.randint(13, 110)) #[REMOVE THIS] just testing to append new data to json
+        ##REMOVE###
+            
+    def clamp(self, i, min, max): 
+        if i < min: 
+            return max
+        elif i > max: 
+            return 0
+        else: 
+            return i 
         
     def initialize_json(self): 
         try:
@@ -220,35 +230,75 @@ class History:
     
     #creates a array obj of dictionary and appends it to our save_data variable and adds it to our savedata.json file.
     def save_measurement(self, ppi, hr, rmssd, sdnn):
+        measurement_time = time.localtime()
+        date = f"{measurement_time[2]}/{measurement_time[1]}/{measurement_time[0]}"
+        
         new_entry = {
-            "PPI" : ppi,
-            "HR" : hr,
+            "Date" 	: date,
+            "PPI" 	: ppi,
+            "HR" 	: hr,
             "rmssd" : rmssd,
-            "sdnn" : sdnn
+            "sdnn" 	: sdnn
             } 
         
         self.save_data.append(new_entry)
-        
-        with open("savedata.json", "w") as f: #with open("PATH", "w=WRITE") as VARIABLE
-            json.dump(self.save_data, f)
-            print("new .json data saved.")
+        self.is_data_full()
+
+    def is_data_full(self):
+        #if maximum list dictionaries is reached, remove oldest data.
+        if(len(self.save_data) > self.max_save_data):
+            self.save_data.pop(0) #remove first data from json.
             
-    def draw(self):
-        self.OLED.fill(0)  # Fill screen with black
-        self.OLED.text("History", 0, 0, 1)
-        self.OLED.text("Press rotary", 0, 16, 1)
-        self.OLED.text("to return", 0, 24, 1)
+            with open("savedata.json", "w") as f: #with open("PATH", "w=WRITE") as VARIABLE
+                json.dump(self.save_data, f)
+                print(f"maximum data reached({self.max_save_data}), removing oldest data from list.")
+        else:
+            with open("savedata.json", "w") as f: #with open("PATH", "w=WRITE") as VARIABLE
+                json.dump(self.save_data, f)
+    
+        print(f"new .json data saved. slots: { len(self.save_data) }/{ self.max_save_data }")
+        
+    def display_history(self, i):
+        self.OLED.text(str( self.save_data[i]["Date"] ) , 0, 12, 1)
+        self.OLED.text(f"HR: {str( self.save_data[i]['HR'] )}" , 0, 20, 1)
+        self.OLED.text(f"PPI: {str( self.save_data[i]['PPI'] )}" , 0, 28, 1)
+        self.OLED.text(f"rmssd: {str( self.save_data[i]['rmssd'] )}" , 0, 36, 1)
+        self.OLED.text(f"sdnn: {str( self.save_data[i]['sdnn'] )}" , 0, 44, 1)
+        
+    def draw(self, next_page):
+        self.OLED.fill(0)  # turn off all leds
+        
+        if len(self.save_data) > 0:
+            self.OLED.text("History (" + str(self.current_page+1) + "/" + str(len(self.save_data))  + ")", 0, 0, 1)
+            self.display_history(next_page)
+        else:
+            self.OLED.text("History", 0, 0, 1)
+            self.OLED.text("No data.", 36, 28, 1)
+        
+        self.OLED.text("Press to return", 0, 56, 1)
         self.OLED.show()  # Update the screen
         
     def execute(self):
         global state
+
         if self.rotary_encoder.fifo.has_data():
             event = self.rotary_encoder.fifo.get() # Get the first event in fifo
+            
+            if event == 1 or event == -1:  #check if is rotation
+                self.last_page = self.current_page
+                self.current_page += event
+                
+                self.current_page = self.clamp(
+                    self.current_page,
+                    0,
+                    len(self.save_data)-1)
+                
             if event == 2:
+                self.current_page = 0
                 state = 0
-        self.draw()
-
-
+                
+            self.draw(self.current_page)
+        
 rotary_encoder = RotaryEncoder()
 menu = MainMenu(rotary_encoder)
 hr = HrMeasurement(rotary_encoder)
