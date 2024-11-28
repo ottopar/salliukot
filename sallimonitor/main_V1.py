@@ -1,17 +1,28 @@
-from machine import Pin, I2C
+from machine import Pin, I2C, ADC
+from piotimer import Piotimer
 from ssd1306 import SSD1306_I2C
 from fifo import Fifo
 import time
 import json
 import random #REMOVE THIS FROM FINAL VERSION
+import micropython
+import array
+
+micropython.alloc_emergency_exception_buf(200)
 
 ## Kehitykset ##
 """ Display class?
     classeille funktiot, jotka tekee mitä pitää,,..!!
     no moikka jätkät <3<3<3
+    Ongelmia:
+    -fifo täyttyy jos kutsuu draw metodia hr measurementissa ( ei kutsu atm, jos painaa menussa hr measurement, mittaus alkaa kyllä)
+    -hr measurement on paskasti tehty, bpm heittelee aika paljon. Vaatii vähän vielä hiomista
+    -Samuel syyttää paskaa mittariaan + ehkä skill issue
+    -Hr measurementista voi poistua kun painaa rotarya, vaikka OLED ei päivity atm
+    
 """
 
-
+SAMPLE_RATE = 250
 state = 0
 
 class RotaryEncoder:
@@ -106,28 +117,89 @@ class MainMenu:
         
         
 class HrMeasurement:
-    def __init__(self, rotary_encoder):
+    def __init__(self, rotary_encoder, sample_rate):
         
         self.rotary_encoder = rotary_encoder
+        self.adc = ADC(26)  
+        self.sample_rate = sample_rate
+        self.data_segment_duration = 4  # seconds
+        self.min_peak_distance = 100 # 400ms, ~190 bpm
+        self.max_peak_distance = 400 # 1600ms, ~30 bpm
+        self.buffer_size = self.sample_rate * self.data_segment_duration
+        self.buffer = array.array('H', [0] * self.buffer_size) 
+        self.fifo = Fifo(30, typecode='i')
+        self.buffer_index = 0 
+        self.bpm = None
+        self.start_up = True
 
         # I2C and OLED setup
         self.i2c = I2C(1, scl=Pin(15), sda=Pin(14), freq=400000)
         self.OLED = SSD1306_I2C(128, 64, self.i2c)
     
+    def read_adc(self, timer):
+        sample = self.adc.read_u16()
+        self.fifo.put(sample)
+    
+    def calculate_data(self):
+        threshold = (sum(self.buffer) / len(self.buffer))
+        bpm_list = []
+        last_peak_index = 0
+        for i in range(1, len(self.buffer) -1):
+            if self.buffer[i] > self.buffer[i - 1] and self.buffer[i] > self.buffer[i + 1] and self.buffer[i] > threshold:
+                if last_peak_index != 0:
+                    index_diff = i - last_peak_index
+                    if self.min_peak_distance < index_diff < self.max_peak_distance:
+                        ppi_ms = index_diff * 4
+                        
+                        bpm = round(60/(ppi_ms/1000))
+                        bpm_list.append(bpm) # appending bpm, because sample buffer has 1000 samples. There might be ~3-4 valid peaks in the data.
+                                
+                last_peak_index = i
+                
+        if bpm_list:  # Check if there are any valid BPMs in the list
+            round_bpm = (round(sum(bpm_list) / len(bpm_list)))  # Calculate the average BPM for more accuracy
+            if 30 < round_bpm < 200: # varmistus vielä vaikka filtteröi jo ppi perusteella
+                self.bpm = round_bpm
+                print("BPM: ", self.bpm)
+        else:
+            print("No relevant peaks detected")
     def draw(self):
-        self.OLED.fill(0)  # Fill screen with black
-        self.OLED.text("HR MEASUREMENT", 0, 0, 1)
-        self.OLED.text("Press rotary", 0, 16, 1)
-        self.OLED.text("to return", 0, 24, 1)
-        self.OLED.show()  # Update the screen
+        if self.start_up:
+            
+            self.OLED.fill(0)
+            self.OLED.text(f"HR MEASUREMENT", 8, 0, 1)
+            self.OLED.text(f"Calculating...", 10, 32, 1)
+            self.OLED.show()
+            self.start_up = False
+        else:
+            
+            if self.bpm:
+                self.OLED.fill(0)
+                self.OLED.text(f"HR MEASUREMENT", 10, 0, 1)
+                self.OLED.text(f"BPM: {self.bpm}", 30, 32, 1)
+            self.OLED.show()  # Update the screen
     
     def execute(self):
         global state
-        if self.rotary_encoder.fifo.has_data():
-            event = self.rotary_encoder.fifo.get() # Get the first event in fifo
+        if self.fifo.has_data():
+            sample = self.fifo.get()
+
+            self.buffer[self.buffer_index] = sample
+            self.buffer_index = (self.buffer_index + 1) % len(self.buffer)  # ring buffer
+
+            if self.buffer_index == 0: # ring buffer full
+                print("Buffer is full, processing data...")
+                self.calculate_data()  
+                self.buffer_index = 0
+                self.draw() # Need to call draw here to limit draw calls, else the fifo fills up.
+                
+        if self.start_up: # First startup
+            self.draw()
+            
+        if self.rotary_encoder.fifo.has_data(): # Rotary events
+            event = self.rotary_encoder.fifo.get()
             if event == 2:
                 state = 0
-        self.draw()
         
 class HrvAnalysis:
     def __init__(self, rotary_encoder):
@@ -303,16 +375,22 @@ class History:
         
 rotary_encoder = RotaryEncoder()
 menu = MainMenu(rotary_encoder)
-hr = HrMeasurement(rotary_encoder)
+hr = HrMeasurement(rotary_encoder, SAMPLE_RATE)
 hrv = HrvAnalysis(rotary_encoder)
 kubios = Kubios(rotary_encoder)
 history = History(rotary_encoder)
-
+timer_on = False
 # Main loop
 while True:
     if state == 0:  # main menu
+        if timer_on:
+            tmr.deinit() # sample timer off
+            timer_on = False
         menu.execute()
     elif state == 1: # HR measurement
+        if not timer_on:
+            tmr = Piotimer(mode=Piotimer.PERIODIC, freq=SAMPLE_RATE, callback=hr.read_adc) # sample timer on
+            timer_on = True
         hr.execute()
     elif state == 2: # HRV analysis
         hrv.execute()
