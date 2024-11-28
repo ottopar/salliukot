@@ -76,8 +76,9 @@ class MainMenu:
 
     def draw(self):
         self.OLED.fill(0)  # Fill screen with black
+        self.OLED.text("SALLIMONITOR", 16, 0, 1)
         for i, item in enumerate(self.menu_items): # Item in each iteration changes to the next list item string in self.menu_items and i is normal for loop iteration number starting from 0
-            y_position = 10 + i * 10  # Space menu items 10 px apart ( First iteration 10 + i(0) * 10 = 10px from the top of the screen )
+            y_position = 20 + i * 10  # Space menu items 10 px apart ( First iteration 10 + i(0) * 10 = 10px from the top of the screen )
             if i == self.selected_index:
                 self.OLED.text(f"{item} <=", 0, y_position, 1) # If current selected index value (0-2) == i, place select arror next to it.
             else:
