@@ -4,7 +4,6 @@ from ssd1306 import SSD1306_I2C
 from fifo import Fifo
 import time
 import json
-import random #REMOVE THIS FROM FINAL VERSION
 import micropython
 import array
 
@@ -404,11 +403,6 @@ class History:
         
         self.save_data:list = [] # create empty save_data variable.
         self.initialize_json() #check if savedata.json exist. if not create new .json file inside root directory.
-        
-        ###REMOVE###
-        for i in range(3): #REMOVE THIS FROM FINAL VERSION
-            self.save_measurement(random.randint(60, 130), random.randint(55, 100), random.randint(13, 110), random.randint(13, 110)) #[REMOVE THIS] just testing to append new data to json
-        ##REMOVE###
             
     def clamp(self, i, min, max): 
         if i < min: 
@@ -452,21 +446,13 @@ class History:
             } 
         
         self.save_data.append(new_entry)
-        self.is_data_full()
-
-    def is_data_full(self):
+        
         #if maximum list dictionaries is reached, remove oldest data.
         if(len(self.save_data) > self.max_save_data):
             self.save_data.pop(0) #remove first data from json.
-            
-            with open("savedata.json", "w") as f: #with open("PATH", "w=WRITE") as VARIABLE
-                json.dump(self.save_data, f)
-                print(f"maximum data reached({self.max_save_data}), removing oldest data from list.")
-        
-        #if not full just update json.
-        else: 
-            with open("savedata.json", "w") as f: #with open("PATH", "w=WRITE") as VARIABLE
-                json.dump(self.save_data, f)
+
+        with open("savedata.json", "w") as f: #with open("PATH", "w=WRITE") as VARIABLE
+            json.dump(self.save_data, f)
     
         print(f"new .json data saved. slots: { len(self.save_data) }/{ self.max_save_data }")
         
