@@ -211,12 +211,14 @@ class HrMeasurement:
                 
         
 class HrvAnalysis:
-    def __init__(self, rotary_encoder):
+    def __init__(self, rotary_encoder, history_obj):
         
         self.rotary_encoder = rotary_encoder
         self.i2c = I2C(1, scl=Pin(15), sda=Pin(14), freq=400000)
         self.OLED = SSD1306_I2C(128, 64, self.i2c)
         self.adc = ADC(Pin(26))
+        self.history = history_obj
+        
         self.samplerate = 250
         self.duration = 30
         self.capturelength = int(self.samplerate * self.duration)
@@ -358,6 +360,9 @@ class HrvAnalysis:
         self.OLED.text(f"SDNN: {sdnn_value} ms", 0, 40, 1)
         self.OLED.show()
         
+        #SAVE DATA THROUGH HISTORY CLASS FUNCTION!
+        self.history.save_measurement(meanPPI, meanHR, rmssd_value, sdnn_value)
+        
         self.analysis_done = True
         
 class Kubios:
@@ -498,11 +503,12 @@ class History:
         self.draw(self.current_page)
         
 rotary_encoder = RotaryEncoder()
-hrv = HrvAnalysis(rotary_encoder)
+history = History(rotary_encoder)
+hrv = HrvAnalysis(rotary_encoder, history)
 menu = MainMenu(rotary_encoder, hrv)
 hr = HrMeasurement(rotary_encoder, SAMPLE_RATE)
 kubios = Kubios(rotary_encoder)
-history = History(rotary_encoder)
+
 timer_on = False
 # Main loop
 while True:
