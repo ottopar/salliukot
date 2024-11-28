@@ -131,6 +131,7 @@ class HrMeasurement:
         self.buffer_index = 0 
         self.bpm = None
         self.start_up = True
+        self.prev_filtered_value = 0
 
         # I2C and OLED setup
         self.i2c = I2C(1, scl=Pin(15), sda=Pin(14), freq=400000)
@@ -139,9 +140,13 @@ class HrMeasurement:
     def read_adc(self, timer):
         sample = self.adc.read_u16()
         self.fifo.put(sample)
+        
+    def low_pass_filter(self, sample, alpha=0.1):
+        self.prev_filtered_value = alpha * sample + (1 - alpha) * self.prev_filtered_value
+        return int(self.prev_filtered_value)
     
     def calculate_data(self):
-        threshold = (sum(self.buffer) / len(self.buffer))
+        threshold = (sum(self.buffer) / len(self.buffer)) * 1.03
         bpm_list = []
         last_peak_index = 0
         for i in range(1, len(self.buffer) -1):
@@ -182,7 +187,8 @@ class HrMeasurement:
     def execute(self):
         global state
         if self.fifo.has_data():
-            sample = self.fifo.get()
+            #sample = self.fifo.get()
+            sample = self.low_pass_filter(self.fifo.get())
 
             self.buffer[self.buffer_index] = sample
             self.buffer_index = (self.buffer_index + 1) % len(self.buffer)  # ring buffer
