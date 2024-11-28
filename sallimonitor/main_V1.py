@@ -15,10 +15,9 @@ micropython.alloc_emergency_exception_buf(200)
     classeille funktiot, jotka tekee mitä pitää,,..!!
     no moikka jätkät <3<3<3
     Ongelmia:
-    -fifo täyttyy jos kutsuu draw metodia hr measurementissa ( ei kutsu atm, jos painaa menussa hr measurement, mittaus alkaa kyllä)
+    -fifo täyttyy jos kutsuu draw metodia liian usein hr measurementissa.
     -hr measurement on paskasti tehty, bpm heittelee aika paljon. Vaatii vähän vielä hiomista
-    -Samuel syyttää paskaa mittariaan + ehkä skill issue
-    -Hr measurementista voi poistua kun painaa rotarya, vaikka OLED ei päivity atm
+    -Samuel syyttää paskaa mittariaan + ehkä skill issue, testatkaa emt
     
 """
 
