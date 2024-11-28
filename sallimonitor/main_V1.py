@@ -199,7 +199,10 @@ class HrMeasurement:
         if self.rotary_encoder.fifo.has_data(): # Rotary events
             event = self.rotary_encoder.fifo.get()
             if event == 2:
+                self.bpm = None
+                self.start_up = True
                 state = 0
+                
         
 class HrvAnalysis:
     def __init__(self, rotary_encoder):
