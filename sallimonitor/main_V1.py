@@ -61,10 +61,10 @@ class RotaryEncoder:
         return None
 
 class MainMenu:
-    def __init__(self, rotary_encoder):
+    def __init__(self, rotary_encoder, HrvAnalysis):
         
         self.rotary_encoder = rotary_encoder
-
+        self.HrvAnalysis = HrvAnalysis
         # I2C and OLED setup
         self.i2c = I2C(1, scl=Pin(15), sda=Pin(14), freq=400000)
         self.OLED = SSD1306_I2C(128, 64, self.i2c)
@@ -102,6 +102,7 @@ class MainMenu:
                 if self.selected_index == 0:
                     state = 1
                 elif self.selected_index == 1:
+                    self.HrvAnalysis.reset()
                     state = 2
                 elif self.selected_index == 2:
                     state = 3
@@ -216,21 +217,149 @@ class HrvAnalysis:
         self.rotary_encoder = rotary_encoder
         self.i2c = I2C(1, scl=Pin(15), sda=Pin(14), freq=400000)
         self.OLED = SSD1306_I2C(128, 64, self.i2c)
+        self.adc = ADC(Pin(26))
+        self.samplerate = 250
+        self.duration = 30
+        self.capturelength = int(self.samplerate * self.duration)
+        self.samples = Fifo(32)
+        self.adcbuffer = array.array('H', [0] * self.capturelength)
+        self.index = 0
+        self.signal_threshold = 2500
+        self.noise_threshold = 500
+        self.tmr = None
+        self.analysis_done = False
+        
+    def reset(self):
+        self.index = 0
+        self.adcbuffer = array.array('H', [0] * self.capturelength)
+        self.samples = Fifo(32)
+        self.analysis_done = False
+        if self.tmr:
+            self.stop_timer()
+        print("HRV analysis reset")
+        
+    def adc_read(self, tid):
+        x = self.adc.read_u16()
+        self.samples.put(x)
+        
+    def low_pass_filter(self, data, a=0.1):
+        last_value = data[0]
+        for i in range(1, len(data)):
+            filtered_value = a * data[i] + (1 - a) * last_value
+            data[i] = int(round(filtered_value))
+            last_value = data[i]
+        return data
     
-    def draw(self):
-        self.OLED.fill(0)  # Fill screen with black
-        self.OLED.text("HRV analysis", 0, 0, 1)
-        self.OLED.text("Press rotary", 0, 16, 1)
-        self.OLED.text("to return", 0, 24, 1)
-        self.OLED.show()  # Update the screen
+    def signal_noise_test(self, data, noise_threshold):
+        for i in range(1, len(data)):
+            if abs(data[i] - data[i-1]) > noise_threshold:
+                return True
+        return False
+    
+    def peak_to_peak_intervals(self, data):
+        peaks = []
+        for i in range(1, len(data) - 1):
+            if data[i-1] < data[i] > data[i+1]:
+                peaks.append(i)
+            elif data[i-1] > data[i] < data[i+1]:
+                peaks.append(i)
+        
+        peaks_ms_list = []
+        for i in range(1, len(peaks)):
+            peak_ms = int((peaks[i] - peaks[i-1]) * 0.4)
+            peaks_ms_list.append(peak_ms)
+            
+        return peaks_ms_list
+    
+    def signal_strength(self, data):
+        max_value = max(data)
+        min_value = min(data)
+        return max_value - min_value
+    
+    def rmssd_calc(self, data):
+        total = 0
+        for i in range(len(data) -1):
+            total += (data[i+1] - data[i])**2
+        rmssd_round = round((total / (len(data) - 1))**0.5, 0)
+        return int(rmssd_round)
+    
+    def sdnn_calc(self, data, meanPPI):
+        total = 0
+        for i in data:
+            total += (i - meanPPI)**2
+        sdnn = (total / (len(data) - 1))**0.5
+        sdnn_round = round(sdnn, 0)
+        return int(sdnn_round) 
+        
+    def start_timer(self):
+        self.tmr = Piotimer(freq=self.samplerate, mode=Piotimer.PERIODIC, callback=self.adc_read)
+        
+    def stop_timer(self):
+        if self.tmr:
+            self.tmr.deinit()
+            self.tmr = None
     
     def execute(self):
+        
         global state
-        if self.rotary_encoder.fifo.has_data():
-            event = self.rotary_encoder.fifo.get() # Get the first event in fifo
-            if event == 2:
-                state = 0
-        self.draw()
+        
+        if self.analysis_done:
+            if self.rotary_encoder.fifo.has_data():
+                event = self.rotary_encoder.fifo.get() # Get the first event in fifo
+                if event == 2:
+                    state = 0
+            return
+        
+        self.OLED.fill(0)
+        self.OLED.text("Measuring for", 0, 0, 1)
+        self.OLED.text("30 seconds", 0, 16, 1)
+        self.OLED.text("Please wait", 0, 32, 1)
+        self.OLED.show()
+                         
+        self.start_timer()
+        
+        while self.index < len(self.adcbuffer):
+            if not self.samples.empty():
+                x = self.samples.get()
+                self.adcbuffer[self.index] = x
+                self.index += 1
+                
+        self.stop_timer()
+        
+        filtered_signal = self.low_pass_filter(self.adcbuffer)
+        
+        if self.signal_noise_test(filtered_signal, self.noise_threshold):
+            self.OLED.fill(0)
+            self.OLED.text("No signal detected", 0, 0, 1)
+            self.OLED.text("Signal too noisy", 0, 16, 1)
+            self.OLED.show()
+            self.analysis_done = True
+            return
+        
+        signal_amplitude = self.signal_strength(self.adcbuffer)
+        
+        if signal_amplitude < self.signal_threshold:
+            self.OLED.fill(0)
+            self.OLED.text("No signal detected", 0, 0, 1)
+            self.OLED.show()
+            self.analysis_done = True
+            return
+            
+        peak_to_peak = self.peak_to_peak_intervals(self.adcbuffer)
+        meanPPI = sum(peak_to_peak) / len(peak_to_peak) * 100
+        meanHR = round(60 * 1000 / meanPPI, 0)
+        rmssd_value = self.rmssd_calc(peak_to_peak)
+        sdnn_value = self.sdnn_calc(peak_to_peak, meanPPI) / 10
+        
+        self.OLED.fill(0)
+        self.OLED.text(f"HRV Result:", 0, 0, 1)
+        self.OLED.text(f"Mean PPI: {meanPPI} ms", 0, 16, 1)
+        self.OLED.text(f"Mean HR: {meanHR} BPM", 0, 24, 1)
+        self.OLED.text(f"RMSSD: {rmssd_value} ms", 0, 32, 1)
+        self.OLED.text(f"SDNN: {sdnn_value} ms", 0, 40, 1)
+        self.OLED.show()
+        
+        self.analysis_done = True
         
 class Kubios:
     def __init__(self, rotary_encoder):
@@ -383,9 +512,9 @@ class History:
         self.draw(self.current_page)
         
 rotary_encoder = RotaryEncoder()
-menu = MainMenu(rotary_encoder)
-hr = HrMeasurement(rotary_encoder, SAMPLE_RATE)
 hrv = HrvAnalysis(rotary_encoder)
+menu = MainMenu(rotary_encoder, hrv)
+hr = HrMeasurement(rotary_encoder, SAMPLE_RATE)
 kubios = Kubios(rotary_encoder)
 history = History(rotary_encoder)
 timer_on = False
