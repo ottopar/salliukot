@@ -6,6 +6,9 @@ import time
 import json
 import micropython
 import array
+from umqtt.simple import MQTTClient
+import network
+
 
 micropython.alloc_emergency_exception_buf(200)
 
@@ -60,10 +63,11 @@ class RotaryEncoder:
         return None
 
 class MainMenu:
-    def __init__(self, rotary_encoder, HrvAnalysis):
+    def __init__(self, rotary_encoder, HrvAnalysis, Kubios):
         
         self.rotary_encoder = rotary_encoder
         self.HrvAnalysis = HrvAnalysis
+        self.Kubios = Kubios
         # I2C and OLED setup
         self.i2c = I2C(1, scl=Pin(15), sda=Pin(14), freq=400000)
         self.OLED = SSD1306_I2C(128, 64, self.i2c)
@@ -104,6 +108,7 @@ class MainMenu:
                     self.HrvAnalysis.reset()
                     state = 2
                 elif self.selected_index == 2:
+                    self.Kubios.reset()
                     state = 3
                 elif self.selected_index == 3:
                     state = 4
@@ -226,7 +231,6 @@ class HrvAnalysis:
         self.adcbuffer = array.array('H', [0] * self.capturelength)
         self.index = 0
         self.signal_threshold = 2500
-        self.noise_threshold = 500
         self.tmr = None
         self.analysis_done = False
         
@@ -243,7 +247,7 @@ class HrvAnalysis:
         x = self.adc.read_u16()
         self.samples.put(x)
         
-    def low_pass_filter(self, data, a=0.1):
+    def low_pass_filter(self, data, a=0.2):
         last_value = data[0]
         for i in range(1, len(data)):
             filtered_value = a * data[i] + (1 - a) * last_value
@@ -251,31 +255,23 @@ class HrvAnalysis:
             last_value = data[i]
         return data
     
-    def signal_noise_test(self, data, noise_threshold):
-        for i in range(1, len(data)):
-            if abs(data[i] - data[i-1]) > noise_threshold:
-                return True
-        return False
-    
     def peak_to_peak_intervals(self, data):
-        peaks = []
-        for i in range(1, len(data) - 1):
-            if data[i-1] < data[i] > data[i+1]:
-                peaks.append(i)
-            elif data[i-1] > data[i] < data[i+1]:
-                peaks.append(i)
         
+        threshold = (sum(data) / len(data)) * 1.03
         peaks_ms_list = []
-        for i in range(1, len(peaks)):
-            peak_ms = int((peaks[i] - peaks[i-1]) * 0.4)
-            peaks_ms_list.append(peak_ms)
-            
+        lastpeak = 0
+        for i in range(1, len(data) - 1):
+            if data[i] > data[i - 1] and data[i] > data[i + 1] and data[i] > threshold:
+                if lastpeak != 0:
+                    indexdiff = i - lastpeak
+                    if 100 < indexdiff < 400:
+                        peak_ms = indexdiff * 4
+                        peaks_ms_list.append(peak_ms)       
+                lastpeak = i
         return peaks_ms_list
     
-    def signal_strength(self, data):
-        max_value = max(data)
-        min_value = min(data)
-        return max_value - min_value
+    def moving_average(self, data, window_size=3):
+        return [int(sum(data[i:i+window_size]) / window_size) for i in range(len(data) - window_size + 1)]
     
     def rmssd_calc(self, data):
         total = 0
@@ -311,12 +307,14 @@ class HrvAnalysis:
                     state = 0
             return
         
+        count = 30
+        
         self.OLED.fill(0)
         self.OLED.text("Measuring for", 0, 0, 1)
-        self.OLED.text("30 seconds", 0, 16, 1)
+        self.OLED.text(f"{count} seconds", 0, 16, 1)
         self.OLED.text("Please wait", 0, 32, 1)
         self.OLED.show()
-                         
+        
         self.start_timer()
         
         while self.index < len(self.adcbuffer):
@@ -324,33 +322,20 @@ class HrvAnalysis:
                 x = self.samples.get()
                 self.adcbuffer[self.index] = x
                 self.index += 1
-                
+            
         self.stop_timer()
         
         filtered_signal = self.low_pass_filter(self.adcbuffer)
+        peak_to_peak = self.peak_to_peak_intervals(filtered_signal)
+        smoothed_peaks = self.moving_average(peak_to_peak)
+        print(peak_to_peak)
+        print(smoothed_peaks)
+        meanPPI = sum(smoothed_peaks) / len(smoothed_peaks) if smoothed_peaks else 0# scaled to ms #
+        meanHR = round(60 * 1000 / meanPPI, 0) if smoothed_peaks else 0
+        rmssd_value = self.rmssd_calc(smoothed_peaks)
+        sdnn_value = self.sdnn_calc(smoothed_peaks, meanPPI) # scaled to ms #
         
-        if self.signal_noise_test(filtered_signal, self.noise_threshold):
-            self.OLED.fill(0)
-            self.OLED.text("No signal detected", 0, 0, 1)
-            self.OLED.text("Signal too noisy", 0, 16, 1)
-            self.OLED.show()
-            self.analysis_done = True
-            return
-        
-        signal_amplitude = self.signal_strength(self.adcbuffer)
-        
-        if signal_amplitude < self.signal_threshold:
-            self.OLED.fill(0)
-            self.OLED.text("No signal detected", 0, 0, 1)
-            self.OLED.show()
-            self.analysis_done = True
-            return
-            
-        peak_to_peak = self.peak_to_peak_intervals(self.adcbuffer)
-        meanPPI = sum(peak_to_peak) / len(peak_to_peak) * 100
-        meanHR = round(60 * 1000 / meanPPI, 0)
-        rmssd_value = self.rmssd_calc(peak_to_peak)
-        sdnn_value = self.sdnn_calc(peak_to_peak, meanPPI) / 10
+        print(f"mean PPI: {meanPPI}, mean hr: {meanHR}, rmssd: {rmssd_value}, sdnn: {sdnn_value}")
         
         self.OLED.fill(0)
         self.OLED.text(f"HRV Result:", 0, 0, 1)
@@ -366,26 +351,174 @@ class HrvAnalysis:
         self.analysis_done = True
         
 class Kubios:
-    def __init__(self, rotary_encoder):
+    def __init__(self, rotary_encoder, history_obj):
         self.rotary_encoder = rotary_encoder
         
         self.i2c = I2C(1, scl=Pin(15), sda=Pin(14), freq=400000)
         self.OLED = SSD1306_I2C(128, 64, self.i2c)
+        self.adc = ADC(Pin(26))
+        self.history = history_obj
+        
+        self.samplerate = 250
+        self.duration = 30
+        self.capturelength = int(self.samplerate * self.duration)
+        self.samples = Fifo(32)
+        self.adcbuffer = array.array('H', [0] * self.capturelength)
+        self.index = 0
+        self.signal_threshold = 2500
+        self.ssid = "KME751_Group_5"
+        self.password = "Nakkivene1"
+        self.broker_ip = "192.168.50.253"
+        self.port = 21884
+        self.tmr = None
+        self.analysis_done = False
+        self.connect_wlan()
+        
+        # Function to connect to WLAN
+    def connect_wlan(self):
+        # Connecting to the group WLAN
+        wlan = network.WLAN(network.STA_IF)
+        wlan.active(True)
+        wlan.connect(self.ssid, self.password)
+
+        # Attempt to connect once per second
+        while wlan.isconnected() == False:
+            print("Connecting... ")
+            sleep(1)
+
+        # Print the IP address of the Pico
+        print("Connection successful. Pico IP:", wlan.ifconfig()[0])
+        
+    def sub_cb(self, topic, msg):
+        print(f"Received message: {msg} from topic {topic}")
+        
+    def connect_mqtt(self):
+        mqtt_client=MQTTClient("", self.broker_ip, self.port)
+        mqtt_client.set_callback(self.sub_cb)
+        mqtt_client.connect(clean_session=True)
+        mqtt_client.subscribe("kubios-response")
+        print("Connected to mqtt broker")
+        return mqtt_client
+            
+    
+    def reset(self):
+        self.index = 0
+        self.adcbuffer = array.array('H', [0] * self.capturelength)
+        self.samples = Fifo(32)
+        self.analysis_done = False
+        if self.tmr:
+            self.stop_timer()
+        print("KUBIOS analysis reset")
+        
+    def adc_read(self, tid):
+        x = self.adc.read_u16()
+        self.samples.put(x)
+    
+    def low_pass_filter(self, data, a=0.2):
+        last_value = data[0]
+        for i in range(1, len(data)):
+            filtered_value = a * data[i] + (1 - a) * last_value
+            data[i] = int(round(filtered_value))
+            last_value = data[i]
+        return data
+    
+    def peak_to_peak_intervals(self, data):
+        
+        threshold = (sum(data) / len(data)) * 1.03
+        peaks_ms_list = []
+        lastpeak = 0
+        for i in range(1, len(data) - 1):
+            if data[i] > data[i - 1] and data[i] > data[i + 1] and data[i] > threshold:
+                if lastpeak != 0:
+                    indexdiff = i - lastpeak
+                    if 100 < indexdiff < 400:
+                        peak_ms = indexdiff * 4
+                        peaks_ms_list.append(peak_ms)       
+                lastpeak = i
+        return peaks_ms_list
+    
+    def moving_average(self, data, window_size=3):
+        return [int(sum(data[i:i+window_size]) / window_size) for i in range(len(data) - window_size + 1)]
+    
+    def start_timer(self):
+        self.tmr = Piotimer(freq=self.samplerate, mode=Piotimer.PERIODIC, callback=self.adc_read)
+        
+    def stop_timer(self):
+        if self.tmr:
+            self.tmr.deinit()
+            self.tmr = None
     
     def draw(self):
-        self.OLED.fill(0)  # Fill screen with black
-        self.OLED.text("Kubios", 0, 0, 1)
-        self.OLED.text("Press rotary", 0, 16, 1)
-        self.OLED.text("to return", 0, 24, 1)
-        self.OLED.show()  # Update the screen
+        self.OLED.fill(0)
+        self.OLED.text("Measuring for", 0, 0, 1)
+        self.OLED.text(f"30 seconds", 0, 16, 1)
+        self.OLED.text("Please wait", 0, 32, 1)
+        self.OLED.show()
         
     def execute(self):
         global state
-        if self.rotary_encoder.fifo.has_data():
-            event = self.rotary_encoder.fifo.get() # Get the first event in fifo
-            if event == 2:
-                state = 0
+        
+        if self.analysis_done:
+            if self.rotary_encoder.fifo.has_data():
+                event = self.rotary_encoder.fifo.get() # Get the first event in fifo
+                if event == 2:
+                    state = 0
+            return
         self.draw()
+        
+        self.start_timer()
+        
+        while self.index < len(self.adcbuffer):
+            if not self.samples.empty():
+                x = self.samples.get()
+                self.adcbuffer[self.index] = x
+                self.index += 1
+            
+        self.stop_timer()
+        
+        filtered_signal = self.low_pass_filter(self.adcbuffer)
+        peak_to_peak = self.peak_to_peak_intervals(filtered_signal)
+        smoothed_peaks = self.moving_average(peak_to_peak)
+        print(smoothed_peaks)
+        
+        sendtokubios = {
+            "id" : 123,
+            "type" : "RRI",
+            "data" : smoothed_peaks,
+            "analysis": { "type": "readiness" }
+            }
+        
+        try:
+            mqtt_client=self.connect_mqtt()
+            print("Connected to mqtt broker")
+        except Exception as e:
+            print(f"Failed to connect to MQTT: {e}")
+        
+        try:
+            # Sending a message every 5 seconds.
+            topic = "kubios-request"
+            message = json.dumps(sendtokubios)
+            mqtt_client.publish(topic, message)
+            print(f"Sending to MQTT: {topic} -> {message}")
+            
+        except Exception as e:
+            print(f"Failed to send MQTT message: {e}")
+        
+        while True:
+            try:
+                mqtt_client.wait_msg()
+            except KeyboardInterrupt:
+                print("Program interrupted by user")
+                break
+            except Exception as e:
+                print(f"Error during wait: {e}")
+                sleep(1)
+            self.analysis_done = True
+        
+        self.analysis_done = True
+
+        
+        
         
 class History:
     def __init__(self, rotary_encoder):
@@ -505,9 +638,9 @@ class History:
 rotary_encoder = RotaryEncoder()
 history = History(rotary_encoder)
 hrv = HrvAnalysis(rotary_encoder, history)
-menu = MainMenu(rotary_encoder, hrv)
+kubios = Kubios(rotary_encoder, history)
+menu = MainMenu(rotary_encoder, hrv, kubios)
 hr = HrMeasurement(rotary_encoder, SAMPLE_RATE)
-kubios = Kubios(rotary_encoder)
 
 timer_on = False
 # Main loop
