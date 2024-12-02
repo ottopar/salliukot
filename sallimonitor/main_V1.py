@@ -384,7 +384,7 @@ class Kubios:
         # Attempt to connect once per second
         while wlan.isconnected() == False:
             print("Connecting... ")
-            sleep(1)
+            time.sleep(1)
 
         # Print the IP address of the Pico
         print("Connection successful. Pico IP:", wlan.ifconfig()[0])
@@ -524,16 +524,19 @@ class Kubios:
         while True:
             try:
                 mqtt_client.wait_msg()
-            except KeyboardInterrupt:
-                print("Program interrupted by user")
-                break
             except Exception as e:
                 print(f"Error during wait: {e}")
                 time.sleep(1)
             self.analysis_done = True
+            break
+        
+            if self.rotary_encoder.fifo.has_data():
+                event = self.rotary_encoder.fifo.get()
+                if event == 2:
+                    break
+                    state = 0
         
         self.analysis_done = True
-
         
         
         
