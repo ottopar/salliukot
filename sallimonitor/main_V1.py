@@ -469,19 +469,11 @@ class Kubios:
         while True:
             try:
                 mqtt_client.wait_msg()
-<<<<<<< HEAD
-=======
-            except KeyboardInterrupt:
-                print("Program interrupted by user")
-                self.HrvAnalysis.analysis_done = True
-                break
->>>>>>> f51e5061423187a9ac1a3858c94ba01ae3d8da96
             except Exception as e:
                 print(f"Error during wait: {e}")
                 self.HrvAnalysis.analysis_done = True
                 time.sleep(1)
-<<<<<<< HEAD
-            self.analysis_done = True
+            self.HrvAnalysis.analysis_done = True
             break
         
             if self.rotary_encoder.fifo.has_data():
@@ -490,12 +482,7 @@ class Kubios:
                     break
                     state = 0
         
-        self.analysis_done = True
-=======
-
->>>>>>> f51e5061423187a9ac1a3858c94ba01ae3d8da96
-        
-        
+        self.HrvAnalysis.analysis_done = True
         
 class History:
     def __init__(self, rotary_encoder):
