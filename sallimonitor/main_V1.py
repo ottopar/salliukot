@@ -390,7 +390,25 @@ class Kubios:
         print("Connection successful. Pico IP:", wlan.ifconfig()[0])
         
     def sub_cb(self, topic, msg):
-        print(f"Received message: {msg} from topic {topic}")
+        data = json.loads(msg)
+        
+        self.OLED.fill(0)
+        
+        print(f'MEAN HR: {data["data"]["analysis"]["mean_hr_bpm"]}')
+        print(f'MEAN PPI: {data["data"]["analysis"]["mean_rr_ms"]}')
+        print(f'MEAN rmssd: {data["data"]["analysis"]["rmssd_ms"]}')
+        print(f'MEAN sdnn: {data["data"]["analysis"]["sdnn_ms"]}')
+        print(f'MEAN sns: {data["data"]["analysis"]["sns_index"]}')
+        print(f'MEAN pns: {data["data"]["analysis"]["pns_index"]}')
+        
+        self.OLED.text(f'MEAN HR: {str(round(data["data"]["analysis"]["mean_hr_bpm"]))}' , 0, 0, 1)
+        self.OLED.text(f'MEAN PPI: {str(round(data["data"]["analysis"]["mean_rr_ms"]))}' , 0, 10, 1)
+        self.OLED.text(f'RMSSD: {str(round(data["data"]["analysis"]["rmssd_ms"]))}' , 0, 20, 1)
+        self.OLED.text(f'SDNN: {str(round(data["data"]["analysis"]["sdnn_ms"]))}' , 0, 30, 1)
+        self.OLED.text(f'SNS: {data["data"]["analysis"]["sns_index"]:.2f}' , 0, 40, 1)
+        self.OLED.text(f'PNS: {data["data"]["analysis"]["pns_index"]:.2f}' , 0, 50, 1)
+        
+        self.OLED.show()
         
     def connect_mqtt(self):
         mqtt_client=MQTTClient("", self.broker_ip, self.port)
@@ -400,7 +418,6 @@ class Kubios:
         print("Connected to mqtt broker")
         return mqtt_client
             
-    
     def reset(self):
         self.index = 0
         self.adcbuffer = array.array('H', [0] * self.capturelength)
@@ -512,7 +529,7 @@ class Kubios:
                 break
             except Exception as e:
                 print(f"Error during wait: {e}")
-                sleep(1)
+                time.sleep(1)
             self.analysis_done = True
         
         self.analysis_done = True
