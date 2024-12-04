@@ -4,6 +4,8 @@ from ssd1306 import SSD1306_I2C
 from fifo import Fifo
 import time
 import json
+import ujson
+import gc
 import micropython
 import array
 from umqtt.simple import MQTTClient
@@ -187,6 +189,7 @@ class HrMeasurement:
     
     def execute(self):
         global state
+        
         if self.fifo.has_data():
             #sample = self.fifo.get()
             sample = self.low_pass_filter(self.fifo.get())
@@ -229,9 +232,13 @@ class HrvAnalysis:
         self.signal_threshold = 2500
         self.tmr = None
         self.analysis_done = False
+        self.count = 30
+        self.counter = 0
         
     def reset(self):
         self.index = 0
+        self.count = 30
+        self.counter = 0
         self.adcbuffer = array.array('H', [0] * self.capturelength)
         self.samples = Fifo(32)
         self.analysis_done = False
@@ -304,11 +311,9 @@ class HrvAnalysis:
                     state = 0
             return
         
-        count = 30
-        
         self.OLED.fill(0)
         self.OLED.text("Measuring for", 0, 0, 1)
-        self.OLED.text(f"{count} seconds", 0, 16, 1)
+        self.OLED.text(f"{self.count} seconds", 0, 16, 1)
         self.OLED.text("Please wait", 0, 32, 1)
         self.OLED.show()
         
@@ -319,7 +324,19 @@ class HrvAnalysis:
                 x = self.samples.get()
                 self.adcbuffer[self.index] = x
                 self.index += 1
+            # Handle the counter
+                self.counter += 1
             
+            if self.counter >= 250:
+                self.counter = 0
+                if self.count > 0:
+                    self.count -= 1
+                    self.OLED.fill(0)
+                    self.OLED.text("Measuring for", 0, 0, 1)
+                    self.OLED.text(f"{self.count} seconds", 0, 16, 1)
+                    self.OLED.text("Please wait", 0, 32, 1)
+                    self.OLED.show()
+                    
         self.stop_timer()
         
         filtered_signal = self.low_pass_filter(self.adcbuffer)
@@ -380,24 +397,15 @@ class Kubios:
         print("Connection successful. Pico IP:", wlan.ifconfig()[0])
         
     def sub_cb(self, topic, msg):
-        data = json.loads(msg)
+        data = ujson.loads(msg)
         
-        self.OLED.fill(0)
-        
-        print(f'MEAN HR: {data["data"]["analysis"]["mean_hr_bpm"]}')
-        print(f'MEAN PPI: {data["data"]["analysis"]["mean_rr_ms"]}')
-        print(f'MEAN rmssd: {data["data"]["analysis"]["rmssd_ms"]}')
-        print(f'MEAN sdnn: {data["data"]["analysis"]["sdnn_ms"]}')
-        print(f'MEAN sns: {data["data"]["analysis"]["sns_index"]}')
-        print(f'MEAN pns: {data["data"]["analysis"]["pns_index"]}')
-        
+        self.OLED.fill(0)   
         self.OLED.text(f'MEAN HR: {str(round(data["data"]["analysis"]["mean_hr_bpm"]))}' , 0, 0, 1)
         self.OLED.text(f'MEAN PPI: {str(round(data["data"]["analysis"]["mean_rr_ms"]))}' , 0, 10, 1)
         self.OLED.text(f'RMSSD: {str(round(data["data"]["analysis"]["rmssd_ms"]))}' , 0, 20, 1)
         self.OLED.text(f'SDNN: {str(round(data["data"]["analysis"]["sdnn_ms"]))}' , 0, 30, 1)
         self.OLED.text(f'SNS: {data["data"]["analysis"]["sns_index"]:.2f}' , 0, 40, 1)
         self.OLED.text(f'PNS: {data["data"]["analysis"]["pns_index"]:.2f}' , 0, 50, 1)
-        
         self.OLED.show()
         
     def connect_mqtt(self):
@@ -412,7 +420,7 @@ class Kubios:
     def draw(self):
         self.OLED.fill(0)
         self.OLED.text("Measuring for", 0, 0, 1)
-        self.OLED.text(f"30 seconds", 0, 16, 1)
+        self.OLED.text(f"{self.HrvAnalysis.count} seconds", 0, 16, 1)
         self.OLED.text("Please wait", 0, 32, 1)
         self.OLED.show()
         
@@ -426,6 +434,9 @@ class Kubios:
                     self.HrvAnalysis.reset()
                     state = 0
             return
+        
+        print(f"free memory to allocate: {gc.mem_free()}")
+        
         self.draw()
         
         self.HrvAnalysis.start_timer()
@@ -435,6 +446,17 @@ class Kubios:
                 x = self.HrvAnalysis.samples.get()
                 self.HrvAnalysis.adcbuffer[self.HrvAnalysis.index] = x
                 self.HrvAnalysis.index += 1
+                self.HrvAnalysis.counter += 1
+                
+            if self.HrvAnalysis.counter >= 250:
+                self.HrvAnalysis.counter = 0
+                if self.HrvAnalysis.count > 0:
+                    self.HrvAnalysis.count -= 1
+                    self.OLED.fill(0)
+                    self.OLED.text("Measuring for", 0, 0, 1)
+                    self.OLED.text(f"{self.HrvAnalysis.count} seconds", 0, 16, 1)
+                    self.OLED.text("Please wait", 0, 32, 1)
+                    self.OLED.show()
             
         self.HrvAnalysis.stop_timer()
         
@@ -452,14 +474,13 @@ class Kubios:
         
         try:
             mqtt_client=self.connect_mqtt()
-            print("Connected to mqtt broker")
         except Exception as e:
             print(f"Failed to connect to MQTT: {e}")
         
         try:
-            # Sending a message every 5 seconds.
+            
             topic = "kubios-request"
-            message = json.dumps(sendtokubios)
+            message = ujson.dumps(sendtokubios)
             mqtt_client.publish(topic, message)
             print(f"Sending to MQTT: {topic} -> {message}")
             
