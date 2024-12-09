@@ -137,12 +137,15 @@ class HrMeasurement:
         self.buffer = array.array('H', [0] * self.buffer_size) 
         self.fifo = Fifo(30, typecode='i')
         self.buffer_index = 0 
-        self.bpm = None
+        self.bpm:str = None
         self.start_up = True
         self.prev_filtered_value = 0
         self.led = Pin(22, Pin.OUT)
         self.MAX_HISTORY = 400
         self.history = []
+        
+        self.has_input = False
+        self.show_heart = False
         
         # I2C and OLED setup
         self.i2c = I2C(1, scl=Pin(15), sda=Pin(14), freq=400000)
@@ -176,10 +179,15 @@ class HrMeasurement:
         if bpm_list:  # Check if there are any valid BPMs in the list
             round_bpm = (round(sum(bpm_list) / len(bpm_list)))  # Calculate the average BPM for more accuracy
             if 30 < round_bpm < 200: # varmistus vielä vaikka filtteröi jo ppi perusteella
-                self.bpm = round_bpm
+                self.bpm = str(round_bpm)
+                self.has_input = True
                 print("BPM: ", self.bpm)
         else:
+            self.bpm = "-"
             print("No relevant peaks detected")
+            self.has_input = False
+            
+            
     def draw(self):
         if self.start_up:
             
@@ -189,9 +197,18 @@ class HrMeasurement:
             self.OLED.show()
             self.start_up = False
         else:
-            
             if self.bpm:
                 self.OLED.fill(0)
+                
+                if(self.has_input == False):
+                    self.OLED.text(f"Pulse not found", 1, 55, 1)
+                
+                if(self.show_heart == True):
+                    for y, row in enumerate(menu.heart):
+                        for x, c in enumerate(row):
+                            self.OLED.pixel(x+16, y+32, c)
+                    self.show_heart == False
+                
                 self.OLED.text(f"HR MEASUREMENT", 10, 0, 1)
                 self.OLED.text(f"BPM: {self.bpm}", 30, 32, 1)
             self.OLED.show()  # Update the screen
@@ -446,7 +463,7 @@ class Kubios:
         wlan.connect(self.ssid, self.password)
 
         # Attempt to connect once per second
-        while wlan.isconnected() == False:
+        while wlan.isconnected() == True:
             print("Connecting... ")
             self.OLED.fill(0)
             self.OLED.text("Connecting to", 0, 0, 1)
@@ -584,14 +601,6 @@ class Kubios:
         
 class History:
     def __init__(self, rotary_encoder):
-        """
-        TO-DO:
-            - Save actual data from measurements. 	[]
-            - Display the data.					 	[X]
-            - Erase data history 					[]
-            - Add more TO-DO's...					[]
-        """
-        
         self.rotary_encoder = rotary_encoder
         
         self.i2c = I2C(1, scl=Pin(15), sda=Pin(14), freq=400000)
@@ -728,14 +737,16 @@ if __name__ == "__main__":
             threshold_on = (minima + maxima * 3) // 4
             threshold_off = (minima + maxima) // 2
             if v > threshold_on:
-                led.on() 
+                led.on()
+                hr.show_heart = True
             if v < threshold_off:
                 led.off()
+                hr.show_heart = False
+            
             ledcounter += 1
             if ledcounter > 1250:
                 hr.history.clear()
                 ledcounter = 0
-         
             
             hr.execute()
         elif state == 2: # HRV analysis
