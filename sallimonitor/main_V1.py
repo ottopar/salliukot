@@ -3,7 +3,6 @@ from piotimer import Piotimer
 from ssd1306 import SSD1306_I2C
 from fifo import Fifo
 import time
-import json
 import ujson
 import gc
 import micropython
@@ -91,6 +90,7 @@ class MainMenu:
         
     def execute(self):
         global state
+        
         if self.rotary_encoder.fifo.has_data():
             event = self.rotary_encoder.fifo.get() # Get the first event in fifo
             if event == 1:  # Clockwise rotation event
@@ -353,14 +353,16 @@ class HrvAnalysis:
         
         self.OLED.fill(0)
         self.OLED.text(f"HRV Result:", 0, 0, 1)
-        self.OLED.text(f"Mean PPI: {meanPPI} ms", 0, 16, 1)
-        self.OLED.text(f"Mean HR: {meanHR} BPM", 0, 24, 1)
-        self.OLED.text(f"RMSSD: {rmssd_value} ms", 0, 32, 1)
-        self.OLED.text(f"SDNN: {sdnn_value} ms", 0, 40, 1)
+        self.OLED.text(f"MEAN PPI:{round(meanPPI)} ms", 0, 10, 1)
+        self.OLED.text(f"MEAN HR:{round(meanHR)} BPM", 0, 20, 1)
+        self.OLED.text(f"RMSSD:{rmssd_value} ms", 0, 30, 1)
+        self.OLED.text(f"SDNN:{sdnn_value} ms", 0, 40, 1)
         self.OLED.show()
         
         #SAVE DATA THROUGH HISTORY CLASS FUNCTION!
-        self.history.save_measurement(meanPPI, meanHR, rmssd_value, sdnn_value)
+        self.history.save_measurement(meanPPI, meanHR, rmssd_value, sdnn_value)    
+        
+        gc.collect()
         
         self.analysis_done = True
         
@@ -435,8 +437,6 @@ class Kubios:
                     state = 0
             return
         
-        print(f"free memory to allocate: {gc.mem_free()}")
-        
         self.draw()
         
         self.HrvAnalysis.start_timer()
@@ -500,6 +500,7 @@ class Kubios:
             if self.rotary_encoder.fifo.has_data():
                 event = self.rotary_encoder.fifo.get()
                 if event == 2:
+                    gc.collect()
                     break
                     state = 0
         
@@ -539,11 +540,11 @@ class History:
         try:
             #IF savedata.json EXISTS => load it to our self.save_data!
             with open("savedata.json", "r") as f: #with open("PATH", "r=READ") as VARIABLE
-                self.save_data = json.load(f) #loads json data and adds it to "save_data" -variable to keep it in sync for new entries. 
+                self.save_data = ujson.load(f) #loads json data and adds it to "save_data" -variable to keep it in sync for new entries. 
                 print("savedata.json file found.")
         except:
             #IF savedata.json does NOT exist => create new savedata.json in root!
-            new_data = json.dumps(self.save_data) #dump empty
+            new_data = ujson.dumps(self.save_data) #dump empty
             with open("savedata.json", "w") as f: #with open("PATH", "w=WRITE") as VARIABLE
                 f.write(new_data)    
             print("Save data not found. Created new savedata.json file in to root directory.")
@@ -552,7 +553,7 @@ class History:
         self.save_data.clear()
         
         with open("savedata.json", "w") as f: #with open("PATH", "w=WRITE") as VARIABLE
-            json.dump(self.save_data, f)
+            ujson.dump(self.save_data, f)
             print("Erased all history data.")
     
     #creates a array obj of dictionary and appends it to our save_data variable and adds it to our savedata.json file.
@@ -575,7 +576,7 @@ class History:
             self.save_data.pop(0) #remove first data from json.
 
         with open("savedata.json", "w") as f: #with open("PATH", "w=WRITE") as VARIABLE
-            json.dump(self.save_data, f)
+            ujson.dump(self.save_data, f)
     
         print(f"new .json data saved. slots: { len(self.save_data) }/{ self.max_save_data }")
         
