@@ -13,17 +13,6 @@ import network
 
 micropython.alloc_emergency_exception_buf(200)
 
-## Kehitykset ##
-""" Display class?
-    classeille funktiot, jotka tekee mitä pitää,,..!!
-    no moikka jätkät <3<3<3
-    Ongelmia:
-    -fifo täyttyy jos kutsuu draw metodia liian usein hr measurementissa.
-    -hr measurement on paskasti tehty, bpm heittelee aika paljon. Vaatii vähän vielä hiomista
-    -Samuel syyttää paskaa mittariaan + ehkä skill issue, testatkaa emt
-    
-"""
-
 SAMPLE_RATE = 250
 state = 0
 
@@ -75,10 +64,26 @@ class MainMenu:
         self.menu_items = ["Heart rate", "HRV analysis", "Kubios", "History"]
         self.selected_index = 0  # Initially select the first menu item
   
+        self.heart = [
+            [ 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [ 0, 1, 1, 0, 0, 0, 1, 1, 0],
+            [ 1, 1, 1, 1, 0, 1, 1, 1, 1],
+            [ 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [ 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [ 0, 1, 1, 1, 1, 1, 1, 1, 0],
+            [ 0, 0, 1, 1, 1, 1, 1, 0, 0],
+            [ 0, 0, 0, 1, 1, 1, 0, 0, 0],
+            [ 0, 0, 0, 0, 1, 0, 0, 0, 0],
+            ]
 
     def draw(self):
         self.OLED.fill(0)  # Fill screen with black
         self.OLED.text("SALLIMONITOR", 16, 0, 1)
+        
+        for y, row in enumerate(self.heart):
+            for x, c in enumerate(row):
+                self.OLED.pixel(x, y, c)
+                self.OLED.pixel(x+118, y, c)
         
         for i, item in enumerate(self.menu_items): # Item in each iteration changes to the next list item string in self.menu_items and i is normal for loop iteration number starting from 0
             y_position = 20 + i * 10  # Space menu items 10 px apart ( First iteration 10 + i(0) * 10 = 10px from the top of the screen )
@@ -111,14 +116,12 @@ class MainMenu:
                     state = 3
                 elif self.selected_index == 3:
                     state = 4
-                    
             
             if self.selected_index > len(self.menu_items) - 1: # Making sure menu arrow doesn't go "out of bounds"
                 self.selected_index = 0
             elif self.selected_index < 0:
                 self.selected_index = len(self.menu_items) - 1
         self.draw()
-        
         
 class HrMeasurement:
     def __init__(self, rotary_encoder, sample_rate):
@@ -155,6 +158,7 @@ class HrMeasurement:
         last_peak_index = 0
         for i in range(1, len(self.buffer) -1):
             if self.buffer[i] > self.buffer[i - 1] and self.buffer[i] > self.buffer[i + 1] and self.buffer[i] > threshold:
+                #LED ON
                 if last_peak_index != 0:
                     index_diff = i - last_peak_index
                     if self.min_peak_distance < index_diff < self.max_peak_distance:
@@ -214,8 +218,7 @@ class HrMeasurement:
                 self.bpm = None
                 self.start_up = True
                 state = 0
-                
-        
+                       
 class HrvAnalysis:
     def __init__(self, rotary_encoder, history_obj):
         
