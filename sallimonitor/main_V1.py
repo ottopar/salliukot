@@ -344,27 +344,38 @@ class HrvAnalysis:
         smoothed_peaks = self.moving_average(peak_to_peak)
         print(peak_to_peak)
         print(smoothed_peaks)
-        meanPPI = sum(smoothed_peaks) / len(smoothed_peaks) if smoothed_peaks else 0# scaled to ms #
-        meanHR = round(60 * 1000 / meanPPI, 0) if smoothed_peaks else 0
-        rmssd_value = self.rmssd_calc(smoothed_peaks)
-        sdnn_value = self.sdnn_calc(smoothed_peaks, meanPPI) # scaled to ms #
         
-        print(f"mean PPI: {meanPPI}, mean hr: {meanHR}, rmssd: {rmssd_value}, sdnn: {sdnn_value}")
+        if len(smoothed_peaks) >= 3:
+            meanPPI = sum(smoothed_peaks) / len(smoothed_peaks) if smoothed_peaks else 0# scaled to ms #
+            meanHR = round(60 * 1000 / meanPPI, 0) if smoothed_peaks else 0
+            rmssd_value = self.rmssd_calc(smoothed_peaks)
+            sdnn_value = self.sdnn_calc(smoothed_peaks, meanPPI) # scaled to ms #
         
-        self.OLED.fill(0)
-        self.OLED.text(f"HRV Result:", 0, 0, 1)
-        self.OLED.text(f"MEAN PPI:{round(meanPPI)} ms", 0, 10, 1)
-        self.OLED.text(f"MEAN HR:{round(meanHR)} BPM", 0, 20, 1)
-        self.OLED.text(f"RMSSD:{rmssd_value} ms", 0, 30, 1)
-        self.OLED.text(f"SDNN:{sdnn_value} ms", 0, 40, 1)
-        self.OLED.show()
+            print(f"mean PPI: {meanPPI}, mean hr: {meanHR}, rmssd: {rmssd_value}, sdnn: {sdnn_value}")
         
-        #SAVE DATA THROUGH HISTORY CLASS FUNCTION!
-        self.history.save_measurement(meanPPI, meanHR, rmssd_value, sdnn_value)    
+            self.OLED.fill(0)
+            self.OLED.text(f"HRV Result:", 0, 0, 1)
+            self.OLED.text(f"MEAN PPI:{round(meanPPI)} ms", 0, 10, 1)
+            self.OLED.text(f"MEAN HR:{round(meanHR)} BPM", 0, 20, 1)
+            self.OLED.text(f"RMSSD:{rmssd_value} ms", 0, 30, 1)
+            self.OLED.text(f"SDNN:{sdnn_value} ms", 0, 40, 1)
+            self.OLED.show()
+            
+            #SAVE DATA THROUGH HISTORY CLASS FUNCTION!
+            self.history.save_measurement(meanPPI, meanHR, rmssd_value, sdnn_value)    
+            
+            gc.collect()
+            
+            self.analysis_done = True
         
-        gc.collect()
+        else:
+            self.OLED.fill(0)
+            self.OLED.text("Error", 0, 0, 1)
+            self.OLED.text("Please try again", 0, 10, 1)
+            self.OLED.show()
+            gc.collect()
         
-        self.analysis_done = True
+            self.analysis_done = True
         
 class Kubios:
     def __init__(self, rotary_encoder, history_obj, HrvAnalysis):
@@ -409,7 +420,7 @@ class Kubios:
         self.OLED.text(f'SNS: {data["data"]["analysis"]["sns_index"]:.2f}' , 0, 40, 1)
         self.OLED.text(f'PNS: {data["data"]["analysis"]["pns_index"]:.2f}' , 0, 50, 1)
         self.OLED.show()
-        
+                
     def connect_mqtt(self):
         mqtt_client=MQTTClient("", self.broker_ip, self.port)
         mqtt_client.set_callback(self.sub_cb)
@@ -476,6 +487,10 @@ class Kubios:
             mqtt_client=self.connect_mqtt()
         except Exception as e:
             print(f"Failed to connect to MQTT: {e}")
+            self.OLED.fill(0)
+            self.OLED.text("Error", 0, 0, 1)
+            self.OLED.text("Please try again", 0, 10, 1)
+            self.OLED.show()
         
         try:
             
@@ -486,12 +501,20 @@ class Kubios:
             
         except Exception as e:
             print(f"Failed to send MQTT message: {e}")
+            self.OLED.fill(0)
+            self.OLED.text("Error", 0, 0, 1)
+            self.OLED.text("Please try again", 0, 10, 1)
+            self.OLED.show()
         
         while True:
             try:
                 mqtt_client.wait_msg()
             except Exception as e:
                 print(f"Error during wait: {e}")
+                self.OLED.fill(0)
+                self.OLED.text("Error", 0, 0, 1)
+                self.OLED.text("Please try again", 0, 10, 1)
+                self.OLED.show()
                 self.HrvAnalysis.analysis_done = True
                 time.sleep(1)
             self.HrvAnalysis.analysis_done = True
@@ -630,20 +653,23 @@ hr = HrMeasurement(rotary_encoder, SAMPLE_RATE)
 
 timer_on = False
 # Main loop
-while True:
-    if state == 0:  # main menu
-        if timer_on:
-            tmr.deinit() # sample timer off
-            timer_on = False
-        menu.execute()
-    elif state == 1: # HR measurement
-        if not timer_on:
-            tmr = Piotimer(mode=Piotimer.PERIODIC, freq=SAMPLE_RATE, callback=hr.read_adc) # sample timer on
-            timer_on = True
-        hr.execute()
-    elif state == 2: # HRV analysis
-        hrv.execute()
-    elif state == 3: # Kubios
-        kubios.execute()
-    elif state == 4: # History
-        history.execute()
+
+
+if __name__ == "__main__":
+    while True:
+        if state == 0:  # main menu
+            if timer_on:
+                tmr.deinit() # sample timer off
+                timer_on = False
+            menu.execute()
+        elif state == 1: # HR measurement
+            if not timer_on:
+                tmr = Piotimer(mode=Piotimer.PERIODIC, freq=SAMPLE_RATE, callback=hr.read_adc) # sample timer on
+                timer_on = True
+            hr.execute()
+        elif state == 2: # HRV analysis
+            hrv.execute()
+        elif state == 3: # Kubios
+            kubios.execute()
+        elif state == 4: # History
+            history.execute()
