@@ -10,7 +10,6 @@ import array
 from umqtt.simple import MQTTClient
 import network
 
-
 micropython.alloc_emergency_exception_buf(200)
 
 SAMPLE_RATE = 250
@@ -63,11 +62,28 @@ class MainMenu:
         # Menu logic
         self.menu_items = ["Heart rate", "HRV analysis", "Kubios", "History"]
         self.selected_index = 0  # Initially select the first menu item
-
+    
+                
+        self.heart = [
+            [ 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [ 0, 1, 1, 0, 0, 0, 1, 1, 0],
+            [ 1, 1, 1, 1, 0, 1, 1, 1, 1],
+            [ 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [ 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [ 0, 1, 1, 1, 1, 1, 1, 1, 0],
+            [ 0, 0, 1, 1, 1, 1, 1, 0, 0],
+            [ 0, 0, 0, 1, 1, 1, 0, 0, 0],
+            [ 0, 0, 0, 0, 1, 0, 0, 0, 0],
+            ]
 
     def draw(self):
         self.OLED.fill(0)  # Fill screen with black
         self.OLED.text("SALLIMONITOR", 16, 0, 1)
+        for y, row in enumerate(self.heart):
+            for x, c in enumerate(row):
+                self.OLED.pixel(x, y, c)
+                self.OLED.pixel(x+118, y, c)
+        
         for i, item in enumerate(self.menu_items): # Item in each iteration changes to the next list item string in self.menu_items and i is normal for loop iteration number starting from 0
             y_position = 20 + i * 10  # Space menu items 10 px apart ( First iteration 10 + i(0) * 10 = 10px from the top of the screen )
             if i == self.selected_index:
@@ -125,7 +141,9 @@ class HrMeasurement:
         self.start_up = True
         self.prev_filtered_value = 0
         self.led = Pin(22, Pin.OUT)
-
+        self.MAX_HISTORY = 400
+        self.history = []
+        
         # I2C and OLED setup
         self.i2c = I2C(1, scl=Pin(15), sda=Pin(14), freq=400000)
         self.OLED = SSD1306_I2C(128, 64, self.i2c)
@@ -688,6 +706,8 @@ hr = HrMeasurement(rotary_encoder, SAMPLE_RATE)
 
 timer_on = False
 # Main loop
+led = Pin("LED", Pin.OUT)
+ledcounter = 0
 
 if __name__ == "__main__":
     while True:
@@ -700,6 +720,23 @@ if __name__ == "__main__":
             if not timer_on:
                 tmr = Piotimer(mode=Piotimer.PERIODIC, freq=SAMPLE_RATE, callback=hr.read_adc) # sample timer on
                 timer_on = True
+            v = hr.adc.read_u16()
+            ledcounter += 1
+            hr.history.append(v)
+            history = hr.history[-hr.MAX_HISTORY:]
+            minima, maxima = min(history), max(history)
+            threshold_on = (minima + maxima * 3) // 4
+            threshold_off = (minima + maxima) // 2
+            if v > threshold_on:
+                led.on() 
+            if v < threshold_off:
+                led.off()
+            ledcounter += 1
+            if ledcounter > 1250:
+                hr.history.clear()
+                ledcounter = 0
+         
+            
             hr.execute()
         elif state == 2: # HRV analysis
             hrv.execute()
@@ -708,4 +745,3 @@ if __name__ == "__main__":
         elif state == 4: # History
             history.execute()
             
-
