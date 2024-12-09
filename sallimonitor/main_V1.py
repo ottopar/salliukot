@@ -63,28 +63,11 @@ class MainMenu:
         # Menu logic
         self.menu_items = ["Heart rate", "HRV analysis", "Kubios", "History"]
         self.selected_index = 0  # Initially select the first menu item
-  
-        self.heart = [
-            [ 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            [ 0, 1, 1, 0, 0, 0, 1, 1, 0],
-            [ 1, 1, 1, 1, 0, 1, 1, 1, 1],
-            [ 1, 1, 1, 1, 1, 1, 1, 1, 1],
-            [ 1, 1, 1, 1, 1, 1, 1, 1, 1],
-            [ 0, 1, 1, 1, 1, 1, 1, 1, 0],
-            [ 0, 0, 1, 1, 1, 1, 1, 0, 0],
-            [ 0, 0, 0, 1, 1, 1, 0, 0, 0],
-            [ 0, 0, 0, 0, 1, 0, 0, 0, 0],
-            ]
+
 
     def draw(self):
         self.OLED.fill(0)  # Fill screen with black
         self.OLED.text("SALLIMONITOR", 16, 0, 1)
-        
-        for y, row in enumerate(self.heart):
-            for x, c in enumerate(row):
-                self.OLED.pixel(x, y, c)
-                self.OLED.pixel(x+118, y, c)
-        
         for i, item in enumerate(self.menu_items): # Item in each iteration changes to the next list item string in self.menu_items and i is normal for loop iteration number starting from 0
             y_position = 20 + i * 10  # Space menu items 10 px apart ( First iteration 10 + i(0) * 10 = 10px from the top of the screen )
             if i == self.selected_index:
@@ -116,12 +99,14 @@ class MainMenu:
                     state = 3
                 elif self.selected_index == 3:
                     state = 4
+                    
             
             if self.selected_index > len(self.menu_items) - 1: # Making sure menu arrow doesn't go "out of bounds"
                 self.selected_index = 0
             elif self.selected_index < 0:
                 self.selected_index = len(self.menu_items) - 1
         self.draw()
+        
         
 class HrMeasurement:
     def __init__(self, rotary_encoder, sample_rate):
@@ -136,7 +121,7 @@ class HrMeasurement:
         self.buffer = array.array('H', [0] * self.buffer_size) 
         self.fifo = Fifo(30, typecode='i')
         self.buffer_index = 0 
-        self.bpm:str = None
+        self.bpm = None
         self.start_up = True
         self.prev_filtered_value = 0
         self.led = Pin(22, Pin.OUT)
@@ -160,11 +145,7 @@ class HrMeasurement:
         last_peak_index = 0
         for i in range(1, len(self.buffer) -1):
             if self.buffer[i] > self.buffer[i - 1] and self.buffer[i] > self.buffer[i + 1] and self.buffer[i] > threshold:
-<<<<<<< HEAD
                 
-=======
-                #LED ON
->>>>>>> 350fc62ad917a2db076b77d31e2998054bc3a576
                 if last_peak_index != 0:
                     index_diff = i - last_peak_index
                     if self.min_peak_distance < index_diff < self.max_peak_distance:
@@ -177,10 +158,9 @@ class HrMeasurement:
         if bpm_list:  # Check if there are any valid BPMs in the list
             round_bpm = (round(sum(bpm_list) / len(bpm_list)))  # Calculate the average BPM for more accuracy
             if 30 < round_bpm < 200: # varmistus vielä vaikka filtteröi jo ppi perusteella
-                self.bpm = str(round_bpm)
+                self.bpm = round_bpm
                 print("BPM: ", self.bpm)
         else:
-            self.bpm = "-"
             print("No relevant peaks detected")
     def draw(self):
         if self.start_up:
@@ -223,7 +203,8 @@ class HrMeasurement:
                 self.bpm = None
                 self.start_up = True
                 state = 0
-                       
+                
+        
 class HrvAnalysis:
     def __init__(self, rotary_encoder, history_obj):
         
@@ -469,20 +450,11 @@ class Kubios:
         self.OLED.text(f'SNS: {data["data"]["analysis"]["sns_index"]:.2f}' , 0, 40, 1)
         self.OLED.text(f'PNS: {data["data"]["analysis"]["pns_index"]:.2f}' , 0, 50, 1)
         self.OLED.show()
-<<<<<<< HEAD
 
         self.history.save_measurement(round(data["data"]["analysis"]["mean_rr_ms"]),
                               round(data["data"]["analysis"]["mean_hr_bpm"]),
                               round(data["data"]["analysis"]["rmssd_ms"]),
                               round(data["data"]["analysis"]["sdnn_ms"]))   
-=======
-        
-        self.history.save_measurement(round(data["data"]["analysis"]["mean_rr_ms"]),
-                                      round(data["data"]["analysis"]["mean_hr_bpm"]),
-                                      round(data["data"]["analysis"]["rmssd_ms"]),
-                                      round(data["data"]["analysis"]["sdnn_ms"]))    
-            
->>>>>>> 350fc62ad917a2db076b77d31e2998054bc3a576
                 
     def connect_mqtt(self):
         mqtt_client=MQTTClient("", self.broker_ip, self.port)
