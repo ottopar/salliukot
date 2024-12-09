@@ -420,6 +420,12 @@ class Kubios:
         self.OLED.text(f'SNS: {data["data"]["analysis"]["sns_index"]:.2f}' , 0, 40, 1)
         self.OLED.text(f'PNS: {data["data"]["analysis"]["pns_index"]:.2f}' , 0, 50, 1)
         self.OLED.show()
+        
+        self.history.save_measurement(round(data["data"]["analysis"]["mean_rr_ms"]),
+                                      round(data["data"]["analysis"]["mean_hr_bpm"]),
+                                      round(data["data"]["analysis"]["rmssd_ms"]),
+                                      round(data["data"]["analysis"]["sdnn_ms"]))    
+            
                 
     def connect_mqtt(self):
         mqtt_client=MQTTClient("", self.broker_ip, self.port)
