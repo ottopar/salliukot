@@ -95,7 +95,6 @@ class MainMenu:
             else:
                 self.OLED.text(f"{item}", 0, y_position, 1)  # Regular text
         self.OLED.show()  # Update the screen
-
         
     def execute(self):
         global state
@@ -151,6 +150,13 @@ class HrMeasurement:
         self.has_input = False
         self.show_heart = False
         
+        #plot
+        self.plot_values:list = []
+        self.get_average:list = []
+        self.plot_average:int = 0
+        self.plot_min:int = 0
+        self.plot_max:int = 0
+        
         # I2C and OLED setup
         self.i2c = I2C(1, scl=Pin(15), sda=Pin(14), freq=400000)
         self.OLED = SSD1306_I2C(128, 64, self.i2c)
@@ -190,32 +196,44 @@ class HrMeasurement:
             self.bpm = "-"
             print("No relevant peaks detected")
             self.has_input = False
+    
+    def normalize(self, value, min_value, max_value):
+        value = (value - min_value)/(max_value-min_value) #normalize value between float (0.0 - 1.0)
+        return int(value * 48) #return value with scaler (e.g. 0.4 * 100 = 40) (100 = set variable)
+    
+    def draw_plot(self):
+        if(len(self.get_average) > 50):
+            average = sum(self.get_average) / len(self.get_average)
+            average = self.normalize(average, 30000, 65535)
             
+            self.plot_values.append(abs(round(average)))
+            
+            print(f"average: {self.plot_values}")
+            #print(f"average: {len(self.plot_values)}")
+            self.get_average.clear()
+            
+            if(len(self.plot_values) > 128):
+                self.plot_values.pop(0)
+    
+    def plot(self):
+        for i in range(len(self.plot_values)):
+            self.OLED.line(i, 64-self.plot_values[i-1], i+1, 64-self.plot_values[i], 1)
             
     def draw(self):
+        self.OLED.fill(0)
+        self.OLED.text(f"HR MEASUREMENT", 10, 0, 1)
+        
         if self.start_up:
-            
-            self.OLED.fill(0)
-            self.OLED.text(f"HR MEASUREMENT", 8, 0, 1)
             self.OLED.text(f"Calculating...", 10, 32, 1)
-            self.OLED.show()
             self.start_up = False
         else:
             if self.bpm:
-                self.OLED.fill(0)
-                
-                if(self.has_input == False):
-                    self.OLED.text(f"Pulse not found", 1, 55, 1)
-                
-                if(self.show_heart == True):
-                    for y, row in enumerate(menu.heart):
-                        for x, c in enumerate(row):
-                            self.OLED.pixel(x+16, y+32, c)
-                    self.show_heart == False
-                
-                self.OLED.text(f"HR MEASUREMENT", 10, 0, 1)
-                self.OLED.text(f"BPM: {self.bpm}", 30, 32, 1)
-            self.OLED.show()  # Update the screen
+                #if(self.has_input == False):
+                    #self.OLED.text(f"Pulse not found", 1, 55, 1)
+                    
+                self.OLED.text(f"BPM: {self.bpm}", 30, 13, 1)
+                self.plot()
+        self.OLED.show()  # Update the screen
     
     def execute(self):
         global state
@@ -741,6 +759,7 @@ if __name__ == "__main__":
             v = hr.adc.read_u16() 
             ledcounter += 1
             hr.history.append(v)
+            hr.get_average.append(v)
             history = hr.history[-hr.MAX_HISTORY:]
             minima, maxima = min(history), max(history)
             threshold_on = (minima + maxima * 3) // 4
@@ -759,6 +778,7 @@ if __name__ == "__main__":
                 ledcounter = 0
             
             hr.execute()
+            hr.draw_plot()
         elif state == 2: # HRV analysis
             hrv.execute()
         elif state == 3: # Kubios
