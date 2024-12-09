@@ -74,11 +74,12 @@ class MainMenu:
         # Menu logic
         self.menu_items = ["Heart rate", "HRV analysis", "Kubios", "History"]
         self.selected_index = 0  # Initially select the first menu item
-
+  
 
     def draw(self):
         self.OLED.fill(0)  # Fill screen with black
         self.OLED.text("SALLIMONITOR", 16, 0, 1)
+        
         for i, item in enumerate(self.menu_items): # Item in each iteration changes to the next list item string in self.menu_items and i is normal for loop iteration number starting from 0
             y_position = 20 + i * 10  # Space menu items 10 px apart ( First iteration 10 + i(0) * 10 = 10px from the top of the screen )
             if i == self.selected_index:
@@ -132,7 +133,7 @@ class HrMeasurement:
         self.buffer = array.array('H', [0] * self.buffer_size) 
         self.fifo = Fifo(30, typecode='i')
         self.buffer_index = 0 
-        self.bpm = None
+        self.bpm:str = None
         self.start_up = True
         self.prev_filtered_value = 0
 
@@ -167,9 +168,10 @@ class HrMeasurement:
         if bpm_list:  # Check if there are any valid BPMs in the list
             round_bpm = (round(sum(bpm_list) / len(bpm_list)))  # Calculate the average BPM for more accuracy
             if 30 < round_bpm < 200: # varmistus vielä vaikka filtteröi jo ppi perusteella
-                self.bpm = round_bpm
+                self.bpm = str(round_bpm)
                 print("BPM: ", self.bpm)
         else:
+            self.bpm = "-"
             print("No relevant peaks detected")
     def draw(self):
         if self.start_up:
