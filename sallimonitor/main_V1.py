@@ -459,7 +459,7 @@ class Kubios:
         self.broker_ip = "192.168.50.253"
         self.port = 21884
         self.tmr = None
-        self.connect_wlan()
+        #self.connect_wlan()
             
         
         # Function to connect to WLAN
@@ -738,17 +738,18 @@ if __name__ == "__main__":
             if not timer_on:
                 tmr = Piotimer(mode=Piotimer.PERIODIC, freq=SAMPLE_RATE, callback=hr.read_adc) # sample timer on
                 timer_on = True
-            v = hr.adc.read_u16()
+            v = hr.adc.read_u16() 
             ledcounter += 1
             hr.history.append(v)
             history = hr.history[-hr.MAX_HISTORY:]
             minima, maxima = min(history), max(history)
             threshold_on = (minima + maxima * 3) // 4
             threshold_off = (minima + maxima) // 2
-            if v > threshold_on:
+            margin = 400
+            if v > threshold_on + margin:
                 led.on()
                 hr.show_heart = True
-            if v < threshold_off:
+            if v < threshold_off - margin:
                 led.off()
                 hr.show_heart = False
             
