@@ -13,17 +13,6 @@ import network
 
 micropython.alloc_emergency_exception_buf(200)
 
-## Kehitykset ##
-""" Display class?
-    classeille funktiot, jotka tekee mitä pitää,,..!!
-    no moikka jätkät <3<3<3
-    Ongelmia:
-    -fifo täyttyy jos kutsuu draw metodia liian usein hr measurementissa.
-    -hr measurement on paskasti tehty, bpm heittelee aika paljon. Vaatii vähän vielä hiomista
-    -Samuel syyttää paskaa mittariaan + ehkä skill issue, testatkaa emt
-    
-"""
-
 SAMPLE_RATE = 250
 state = 0
 
@@ -135,6 +124,7 @@ class HrMeasurement:
         self.bpm = None
         self.start_up = True
         self.prev_filtered_value = 0
+        self.led = Pin(22, Pin.OUT)
 
         # I2C and OLED setup
         self.i2c = I2C(1, scl=Pin(15), sda=Pin(14), freq=400000)
@@ -150,10 +140,12 @@ class HrMeasurement:
     
     def calculate_data(self):
         threshold = (sum(self.buffer) / len(self.buffer)) * 1.03
+        print(threshold)
         bpm_list = []
         last_peak_index = 0
         for i in range(1, len(self.buffer) -1):
             if self.buffer[i] > self.buffer[i - 1] and self.buffer[i] > self.buffer[i + 1] and self.buffer[i] > threshold:
+                
                 if last_peak_index != 0:
                     index_diff = i - last_peak_index
                     if self.min_peak_distance < index_diff < self.max_peak_distance:
@@ -161,8 +153,7 @@ class HrMeasurement:
                         
                         bpm = round(60/(ppi_ms/1000))
                         bpm_list.append(bpm) # appending bpm, because sample buffer has 1000 samples. There might be ~3-4 valid peaks in the data.
-                                
-                last_peak_index = i
+                last_peak_index = i  
                 
         if bpm_list:  # Check if there are any valid BPMs in the list
             round_bpm = (round(sum(bpm_list) / len(bpm_list)))  # Calculate the average BPM for more accuracy
@@ -234,6 +225,7 @@ class HrvAnalysis:
         self.analysis_done = False
         self.count = 30
         self.counter = 0
+        self.led = Pin(22, Pin.OUT)
         
     def reset(self):
         self.index = 0
@@ -299,6 +291,12 @@ class HrvAnalysis:
             self.tmr.deinit()
             self.tmr = None
     
+    def connectMQTT(self):
+        mqtt_client=MQTTClient("", "192.168.50.253", 21884)
+        mqtt_client.connect(clean_session=True)
+        print("Connected to mqtt broker")
+        return mqtt_client
+    
     def execute(self):
         
         global state
@@ -335,7 +333,7 @@ class HrvAnalysis:
                     self.OLED.text("Measuring for", 0, 0, 1)
                     self.OLED.text(f"{self.count} seconds", 0, 16, 1)
                     self.OLED.text("Please wait", 0, 32, 1)
-                    self.OLED.show()
+                    self.OLED.show()     
                     
         self.stop_timer()
         
@@ -362,7 +360,34 @@ class HrvAnalysis:
             self.OLED.show()
             
             #SAVE DATA THROUGH HISTORY CLASS FUNCTION!
-            self.history.save_measurement(meanPPI, meanHR, rmssd_value, sdnn_value)    
+            self.history.save_measurement(meanPPI, meanHR, rmssd_value, sdnn_value)
+            
+            measurement = {
+                "mean_hr" : meanHR,
+                "mean_ppi" : meanPPI,
+                "rmssd" : rmssd_value,
+                "sdnn" : sdnn_value
+                }
+            
+            try:
+                mqtt_client=self.connectMQTT()
+            except Exception as e:
+                print(f"Failed to connect to MQTT: {e}")
+                self.OLED.fill(0)
+                self.OLED.text("Error", 0, 0, 1)
+                self.OLED.text("Please try again", 0, 10, 1)
+                self.OLED.show()
+            try:
+                topic = "HRV"
+                message = ujson.dumps(measurement)
+                mqtt_client.publish(topic, message)
+                print(f"Sending to MQTT: {topic} -> {message}")      
+            except Exception as e:
+                print(f"Failed to send MQTT message: {e}")
+                self.OLED.fill(0)
+                self.OLED.text("Error", 0, 0, 1)
+                self.OLED.text("Please try again", 0, 10, 1)
+                self.OLED.show()
             
             gc.collect()
             
@@ -373,6 +398,7 @@ class HrvAnalysis:
             self.OLED.text("Error", 0, 0, 1)
             self.OLED.text("Please try again", 0, 10, 1)
             self.OLED.show()
+            
             gc.collect()
         
             self.analysis_done = True
@@ -404,6 +430,10 @@ class Kubios:
         # Attempt to connect once per second
         while wlan.isconnected() == False:
             print("Connecting... ")
+            self.OLED.fill(0)
+            self.OLED.text("Connecting to", 0, 0, 1)
+            self.OLED.text("WLAN", 0, 10, 1)
+            self.OLED.show()
             time.sleep(1)
 
         # Print the IP address of the Pico
@@ -420,6 +450,11 @@ class Kubios:
         self.OLED.text(f'SNS: {data["data"]["analysis"]["sns_index"]:.2f}' , 0, 40, 1)
         self.OLED.text(f'PNS: {data["data"]["analysis"]["pns_index"]:.2f}' , 0, 50, 1)
         self.OLED.show()
+
+        self.history.save_measurement(round(data["data"]["analysis"]["mean_rr_ms"]),
+                              round(data["data"]["analysis"]["mean_hr_bpm"]),
+                              round(data["data"]["analysis"]["rmssd_ms"]),
+                              round(data["data"]["analysis"]["sdnn_ms"]))   
                 
     def connect_mqtt(self):
         mqtt_client=MQTTClient("", self.broker_ip, self.port)
@@ -654,7 +689,6 @@ hr = HrMeasurement(rotary_encoder, SAMPLE_RATE)
 timer_on = False
 # Main loop
 
-
 if __name__ == "__main__":
     while True:
         if state == 0:  # main menu
@@ -673,3 +707,5 @@ if __name__ == "__main__":
             kubios.execute()
         elif state == 4: # History
             history.execute()
+            
+
