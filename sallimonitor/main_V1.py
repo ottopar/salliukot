@@ -31,20 +31,24 @@ class RotaryEncoder:
         self.last_press_time = 0
         self.last_rotate_time = 0
         
+        self.active = True
+        
     def on_rotary_rotated(self, pin):
-        current_time = time.ticks_ms()
-        if time.ticks_diff(current_time, self.last_rotate_time) > self.debounce_time:
-            self.last_rotate_time = current_time
-            if self.b():  # Clockwise rotation
-                self.fifo.put(-1)
-            else:         # Counter-clockwise rotation
-                self.fifo.put(1)
+        if(self.active):
+            current_time = time.ticks_ms()
+            if time.ticks_diff(current_time, self.last_rotate_time) > self.debounce_time:
+                self.last_rotate_time = current_time
+                if self.b():  # Clockwise rotation
+                    self.fifo.put(-1)
+                else:         # Counter-clockwise rotation
+                    self.fifo.put(1)
 
     def on_rotary_pressed(self, pin):
-        current_time = time.ticks_ms()
-        if time.ticks_diff(current_time, self.last_press_time) > self.debounce_time:
-            self.last_press_time = current_time
-            self.fifo.put(2)  # Button press
+        if(self.active):
+            current_time = time.ticks_ms()
+            if time.ticks_diff(current_time, self.last_press_time) > self.debounce_time:
+                self.last_press_time = current_time
+                self.fifo.put(2)  # Button press
 
     def get_event(self):
         if self.fifo.has_data():
@@ -344,6 +348,7 @@ class HrvAnalysis:
                     state = 0
             return
         
+        self.rotary_encoder.active = False
         self.OLED.fill(0)
         self.OLED.text("Measuring for", 0, 0, 1)
         self.OLED.text(f"{self.count} seconds", 0, 16, 1)
@@ -426,6 +431,7 @@ class HrvAnalysis:
             
             gc.collect()
             
+            self.rotary_encoder.active = True
             self.analysis_done = True
         
         else:
@@ -436,6 +442,7 @@ class HrvAnalysis:
             
             gc.collect()
         
+            self.rotary_encoder.active = True
             self.analysis_done = True
         
 class Kubios:
@@ -463,7 +470,7 @@ class Kubios:
         wlan.connect(self.ssid, self.password)
 
         # Attempt to connect once per second
-        while wlan.isconnected() == True:
+        while wlan.isconnected() == False:
             print("Connecting... ")
             self.OLED.fill(0)
             self.OLED.text("Connecting to", 0, 0, 1)
@@ -516,6 +523,7 @@ class Kubios:
                 if event == 2:
                     self.HrvAnalysis.reset()
                     state = 0
+                    self.rotary_encoder.active = True
             return
         
         self.draw()
@@ -538,6 +546,7 @@ class Kubios:
                     self.OLED.text(f"{self.HrvAnalysis.count} seconds", 0, 16, 1)
                     self.OLED.text("Please wait", 0, 32, 1)
                     self.OLED.show()
+                    self.rotary_encoder.active = False
             
         self.HrvAnalysis.stop_timer()
         
