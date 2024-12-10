@@ -10,6 +10,7 @@ import array
 from umqtt.simple import MQTTClient
 import network
 
+
 micropython.alloc_emergency_exception_buf(200)
 
 SAMPLE_RATE = 250
@@ -30,25 +31,21 @@ class RotaryEncoder:
         
         self.last_press_time = 0
         self.last_rotate_time = 0
-        
-        self.active = True
-        
+                
     def on_rotary_rotated(self, pin):
-        if(self.active):
-            current_time = time.ticks_ms()
-            if time.ticks_diff(current_time, self.last_rotate_time) > self.debounce_time:
-                self.last_rotate_time = current_time
-                if self.b():  # Clockwise rotation
-                    self.fifo.put(-1)
-                else:         # Counter-clockwise rotation
-                    self.fifo.put(1)
+        current_time = time.ticks_ms()
+        if time.ticks_diff(current_time, self.last_rotate_time) > self.debounce_time:
+            self.last_rotate_time = current_time
+            if self.b():  # Clockwise rotation
+                self.fifo.put(-1)
+            else:         # Counter-clockwise rotation
+                self.fifo.put(1)
 
     def on_rotary_pressed(self, pin):
-        if(self.active):
-            current_time = time.ticks_ms()
-            if time.ticks_diff(current_time, self.last_press_time) > self.debounce_time:
-                self.last_press_time = current_time
-                self.fifo.put(2)  # Button press
+        current_time = time.ticks_ms()
+        if time.ticks_diff(current_time, self.last_press_time) > self.debounce_time:
+            self.last_press_time = current_time
+            self.fifo.put(2)  # Button press
 
     def get_event(self):
         if self.fifo.has_data():
@@ -144,9 +141,6 @@ class HrMeasurement:
         self.bpm:str = None
         self.start_up = True
         self.prev_filtered_value = 0
-        self.led = Pin(22, Pin.OUT)
-        self.MAX_HISTORY = 400
-        self.history = []
         
         self.has_input = False
         self.show_heart = False
@@ -264,7 +258,6 @@ class HrvAnalysis:
         self.analysis_done = False
         self.count = 30
         self.counter = 0
-        self.led = Pin(22, Pin.OUT)
         
     def reset(self):
         self.index = 0
@@ -348,7 +341,6 @@ class HrvAnalysis:
                     state = 0
             return
         
-        self.rotary_encoder.active = False
         self.OLED.fill(0)
         self.OLED.text("Measuring for", 0, 0, 1)
         self.OLED.text(f"{self.count} seconds", 0, 16, 1)
@@ -431,7 +423,6 @@ class HrvAnalysis:
             
             gc.collect()
             
-            self.rotary_encoder.active = True
             self.analysis_done = True
         
         else:
@@ -440,9 +431,9 @@ class HrvAnalysis:
             self.OLED.text("Please try again", 0, 10, 1)
             self.OLED.show()
             
+            
             gc.collect()
         
-            self.rotary_encoder.active = True
             self.analysis_done = True
         
 class Kubios:
@@ -459,7 +450,7 @@ class Kubios:
         self.broker_ip = "192.168.50.253"
         self.port = 21884
         self.tmr = None
-        #self.connect_wlan()
+        self.connect_wlan()
             
         
         # Function to connect to WLAN
@@ -521,9 +512,10 @@ class Kubios:
             if self.rotary_encoder.fifo.has_data():
                 event = self.rotary_encoder.fifo.get() # Get the first event in fifo
                 if event == 2:
+                    gc.collect()
                     self.HrvAnalysis.reset()
                     state = 0
-                    self.rotary_encoder.active = True
+                    
             return
         
         self.draw()
@@ -546,7 +538,7 @@ class Kubios:
                     self.OLED.text(f"{self.HrvAnalysis.count} seconds", 0, 16, 1)
                     self.OLED.text("Please wait", 0, 32, 1)
                     self.OLED.show()
-                    self.rotary_encoder.active = False
+                    
             
         self.HrvAnalysis.stop_timer()
         
@@ -569,6 +561,7 @@ class Kubios:
             self.OLED.fill(0)
             self.OLED.text("Error", 0, 0, 1)
             self.OLED.text("Please try again", 0, 10, 1)
+            
             self.OLED.show()
         
         try:
@@ -583,6 +576,7 @@ class Kubios:
             self.OLED.fill(0)
             self.OLED.text("Error", 0, 0, 1)
             self.OLED.text("Please try again", 0, 10, 1)
+            
             self.OLED.show()
         
         while True:
@@ -605,7 +599,7 @@ class Kubios:
                     gc.collect()
                     break
                     state = 0
-        
+        gc.collect()
         self.HrvAnalysis.analysis_done = True
         
 class History:
@@ -716,16 +710,14 @@ class History:
         self.draw(self.current_page)
         
 rotary_encoder = RotaryEncoder()
-history = History(rotary_encoder)
-hrv = HrvAnalysis(rotary_encoder, history)
-kubios = Kubios(rotary_encoder, history, hrv)
+hs = History(rotary_encoder)
+hrv = HrvAnalysis(rotary_encoder, hs)
+kubios = Kubios(rotary_encoder, hs, hrv)
 menu = MainMenu(rotary_encoder)
 hr = HrMeasurement(rotary_encoder, SAMPLE_RATE)
 
 timer_on = False
 # Main loop
-led = Pin("LED", Pin.OUT)
-ledcounter = 0
 
 if __name__ == "__main__":
     while True:
@@ -737,32 +729,16 @@ if __name__ == "__main__":
         elif state == 1: # HR measurement
             if not timer_on:
                 tmr = Piotimer(mode=Piotimer.PERIODIC, freq=SAMPLE_RATE, callback=hr.read_adc) # sample timer on
-                timer_on = True
-            v = hr.adc.read_u16() 
-            ledcounter += 1
-            hr.history.append(v)
-            history = hr.history[-hr.MAX_HISTORY:]
-            minima, maxima = min(history), max(history)
-            threshold_on = (minima + maxima * 3) // 4
-            threshold_off = (minima + maxima) // 2
-            margin = 400
-            if v > threshold_on + margin:
-                led.on()
-                hr.show_heart = True
-            if v < threshold_off - margin:
-                led.off()
-                hr.show_heart = False
-            
-            ledcounter += 1
-            if ledcounter > 1250:
-                hr.history.clear()
-                ledcounter = 0
-            
+                timer_on = True 
             hr.execute()
         elif state == 2: # HRV analysis
             hrv.execute()
         elif state == 3: # Kubios
             kubios.execute()
         elif state == 4: # History
-            history.execute()
+            hs.execute()
             
+
+
+
+
