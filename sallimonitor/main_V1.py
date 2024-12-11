@@ -10,11 +10,14 @@ import array
 from umqtt.simple import MQTTClient
 import network
 
+gc.enable()
 
 micropython.alloc_emergency_exception_buf(200)
 
 SAMPLE_RATE = 250
 state = 0
+
+adcbuffer = array.array('H', [0] * 7500)
 
 class RotaryEncoder:
     def __init__(self, btn_pin=12, a_pin=10, b_pin=11):
@@ -102,11 +105,11 @@ class MainMenu:
             if event == 1:  # Clockwise rotation event
                 if self.selected_index < len(self.menu_items) - 1:
                     self.selected_index = (self.selected_index + 1)
-                    print(self.selected_index)
+                    
             elif event == -1:  # Counter-clockwise rotation event
                 if self.selected_index > 0:
                     self.selected_index = (self.selected_index - 1)
-                    print(self.selected_index)
+                    
             elif event == 2:  # Button press event
                 if self.selected_index == 0:
                     state = 1
@@ -124,7 +127,7 @@ class MainMenu:
                 self.selected_index = len(self.menu_items) - 1
         self.draw()
         
-        
+       
 class HrMeasurement:
     def __init__(self, rotary_encoder, sample_rate):
         
@@ -136,7 +139,7 @@ class HrMeasurement:
         self.max_peak_distance = 400 # 1600ms, ~30 bpm
         self.buffer_size = self.sample_rate * self.data_segment_duration
         self.buffer = array.array('H', [0] * self.buffer_size) 
-        self.fifo = Fifo(30, typecode='i')
+        self.fifo = Fifo(32, typecode='i')
         self.buffer_index = 0 
         self.bpm:str = None
         self.start_up = True
@@ -159,7 +162,7 @@ class HrMeasurement:
     
     def calculate_data(self):
         threshold = (sum(self.buffer) / len(self.buffer)) * 1.03
-        print(threshold)
+        
         bpm_list = []
         last_peak_index = 0
         for i in range(1, len(self.buffer) -1):
@@ -179,10 +182,10 @@ class HrMeasurement:
             if 30 < round_bpm < 200: # varmistus vielä vaikka filtteröi jo ppi perusteella
                 self.bpm = str(round_bpm)
                 self.has_input = True
-                print("BPM: ", self.bpm)
+                
         else:
             self.bpm = "-"
-            print("No relevant peaks detected")
+            
             self.has_input = False
             
             
@@ -222,7 +225,7 @@ class HrMeasurement:
             self.buffer_index = (self.buffer_index + 1) % len(self.buffer)  # ring buffer
 
             if self.buffer_index == 0: # ring buffer full
-                print("Buffer is full, processing data...")
+                
                 self.calculate_data()  
                 self.buffer_index = 0
                 self.draw() # Need to call draw here to limit draw calls, else the fifo fills up.
@@ -233,13 +236,18 @@ class HrMeasurement:
         if self.rotary_encoder.fifo.has_data(): # Rotary events
             event = self.rotary_encoder.fifo.get()
             if event == 2:
+                self.buffer = array.array('H', [0]* self.buffer_size)
+                self.buffer_index = 0
+                self.fifo = Fifo(32, typecode='i')
                 self.bpm = None
                 self.start_up = True
                 state = 0
-                
+            
         
 class HrvAnalysis:
+    global adcbuffer
     def __init__(self, rotary_encoder, history_obj):
+        gc.threshold(1000)
         
         self.rotary_encoder = rotary_encoder
         self.i2c = I2C(1, scl=Pin(15), sda=Pin(14), freq=400000)
@@ -250,8 +258,7 @@ class HrvAnalysis:
         self.samplerate = 250
         self.duration = 30
         self.capturelength = int(self.samplerate * self.duration)
-        self.samples = Fifo(32)
-        self.adcbuffer = array.array('H', [0] * self.capturelength)
+        self.samples = Fifo(32, typecode='i')
         self.index = 0
         self.signal_threshold = 2500
         self.tmr = None
@@ -263,12 +270,17 @@ class HrvAnalysis:
         self.index = 0
         self.count = 30
         self.counter = 0
-        self.adcbuffer = array.array('H', [0] * self.capturelength)
-        self.samples = Fifo(32)
+        print(gc.mem_free())
+        adcbuffer[:] = array.array('H', [0] * self.capturelength)
+        print(gc.mem_free())
+        self.samples = Fifo(32, typecode='i')
         self.analysis_done = False
+        
         if self.tmr:
             self.stop_timer()
-        print("analysis reset")
+            
+        gc.collect()
+        print(gc.mem_free())  
         
     def adc_read(self, tid):
         x = self.adc.read_u16()
@@ -326,7 +338,7 @@ class HrvAnalysis:
     def connectMQTT(self):
         mqtt_client=MQTTClient("", "192.168.50.253", 21884)
         mqtt_client.connect(clean_session=True)
-        print("Connected to mqtt broker")
+        
         return mqtt_client
     
     def execute(self):
@@ -337,22 +349,26 @@ class HrvAnalysis:
             if self.rotary_encoder.fifo.has_data():
                 event = self.rotary_encoder.fifo.get() # Get the first event in fifo
                 if event == 2:
+                    print(gc.mem_free())
                     self.reset()
+                    print(gc.mem_free())
                     state = 0
             return
         
         self.OLED.fill(0)
         self.OLED.text("Measuring for", 0, 0, 1)
-        self.OLED.text(f"{self.count} seconds", 0, 16, 1)
-        self.OLED.text("Please wait", 0, 32, 1)
+        self.OLED.text(f"{self.count} seconds", 0, 10, 1)
+        self.OLED.text("Please wait.", 0, 20, 1)
+        self.OLED.text("Dont touch the", 0, 30, 1)
+        self.OLED.text("Rotary knob", 0, 40, 1)
         self.OLED.show()
         
         self.start_timer()
         
-        while self.index < len(self.adcbuffer):
+        while self.index < len(adcbuffer):
             if not self.samples.empty():
                 x = self.samples.get()
-                self.adcbuffer[self.index] = x
+                adcbuffer[self.index] = x
                 self.index += 1
             # Handle the counter
                 self.counter += 1
@@ -363,17 +379,23 @@ class HrvAnalysis:
                     self.count -= 1
                     self.OLED.fill(0)
                     self.OLED.text("Measuring for", 0, 0, 1)
-                    self.OLED.text(f"{self.count} seconds", 0, 16, 1)
-                    self.OLED.text("Please wait", 0, 32, 1)
+                    self.OLED.text(f"{self.count} seconds", 0, 10, 1)
+                    self.OLED.text("Please wait.", 0, 20, 1)
+                    self.OLED.text("Dont touch the", 0, 30, 1)
+                    self.OLED.text("Rotary knob", 0, 40, 1)
                     self.OLED.show()     
-                    
         self.stop_timer()
         
-        filtered_signal = self.low_pass_filter(self.adcbuffer)
+        self.OLED.fill(0)
+        self.OLED.text("Processing data...", 0, 0, 1)
+        self.OLED.text("Dont touch the", 0, 20, 1)
+        self.OLED.text("Rotary knob", 0, 30, 1)
+        self.OLED.show()
+        
+        filtered_signal = self.low_pass_filter(adcbuffer)
         peak_to_peak = self.peak_to_peak_intervals(filtered_signal)
         smoothed_peaks = self.moving_average(peak_to_peak)
-        print(peak_to_peak)
-        print(smoothed_peaks)
+        
         
         if len(smoothed_peaks) >= 3:
             meanPPI = sum(smoothed_peaks) / len(smoothed_peaks) if smoothed_peaks else 0# scaled to ms #
@@ -381,7 +403,7 @@ class HrvAnalysis:
             rmssd_value = self.rmssd_calc(smoothed_peaks)
             sdnn_value = self.sdnn_calc(smoothed_peaks, meanPPI) # scaled to ms #
         
-            print(f"mean PPI: {meanPPI}, mean hr: {meanHR}, rmssd: {rmssd_value}, sdnn: {sdnn_value}")
+            
         
             self.OLED.fill(0)
             self.OLED.text(f"HRV Result:", 0, 0, 1)
@@ -404,7 +426,7 @@ class HrvAnalysis:
             try:
                 mqtt_client=self.connectMQTT()
             except Exception as e:
-                print(f"Failed to connect to MQTT: {e}")
+                
                 self.OLED.fill(0)
                 self.OLED.text("Error", 0, 0, 1)
                 self.OLED.text("Please try again", 0, 10, 1)
@@ -413,15 +435,28 @@ class HrvAnalysis:
                 topic = "HRV"
                 message = ujson.dumps(measurement)
                 mqtt_client.publish(topic, message)
-                print(f"Sending to MQTT: {topic} -> {message}")      
+                      
             except Exception as e:
-                print(f"Failed to send MQTT message: {e}")
+                
                 self.OLED.fill(0)
                 self.OLED.text("Error", 0, 0, 1)
                 self.OLED.text("Please try again", 0, 10, 1)
                 self.OLED.show()
             
+            time.sleep(0.1)
+            print(gc.mem_free())
+            del self.samples
+            filtered_signal = None
+            peak_to_peak = None
+            smoothed_peaks = None
+            meanPPI = None
+            meanHR = None
+            rmssd_value = None
+            sdnn_value = None
+            
             gc.collect()
+            time.sleep(0.1)
+            print(gc.mem_free())
             
             self.analysis_done = True
         
@@ -435,8 +470,9 @@ class HrvAnalysis:
             gc.collect()
         
             self.analysis_done = True
-        
+     
 class Kubios:
+    global adcbuffer
     def __init__(self, rotary_encoder, history_obj, HrvAnalysis):
         self.rotary_encoder = rotary_encoder
         self.HrvAnalysis = HrvAnalysis
@@ -462,7 +498,7 @@ class Kubios:
 
         # Attempt to connect once per second
         while wlan.isconnected() == False:
-            print("Connecting... ")
+            
             self.OLED.fill(0)
             self.OLED.text("Connecting to", 0, 0, 1)
             self.OLED.text("WLAN", 0, 10, 1)
@@ -470,7 +506,7 @@ class Kubios:
             time.sleep(1)
 
         # Print the IP address of the Pico
-        print("Connection successful. Pico IP:", wlan.ifconfig()[0])
+        
         
     def sub_cb(self, topic, msg):
         data = ujson.loads(msg)
@@ -494,15 +530,17 @@ class Kubios:
         mqtt_client.set_callback(self.sub_cb)
         mqtt_client.connect(clean_session=True)
         mqtt_client.subscribe("kubios-response")
-        print("Connected to mqtt broker")
+        
         return mqtt_client
             
     
     def draw(self):
         self.OLED.fill(0)
         self.OLED.text("Measuring for", 0, 0, 1)
-        self.OLED.text(f"{self.HrvAnalysis.count} seconds", 0, 16, 1)
-        self.OLED.text("Please wait", 0, 32, 1)
+        self.OLED.text(f"{self.HrvAnalysis.count} seconds", 0, 10, 1)
+        self.OLED.text("Please wait.", 0, 20, 1)
+        self.OLED.text("Dont touch the", 0, 30, 1)
+        self.OLED.text("Rotary knob", 0, 40, 1)
         self.OLED.show()
         
     def execute(self):
@@ -522,10 +560,10 @@ class Kubios:
         
         self.HrvAnalysis.start_timer()
         
-        while self.HrvAnalysis.index < len(self.HrvAnalysis.adcbuffer):
+        while self.HrvAnalysis.index < len(adcbuffer):
             if not self.HrvAnalysis.samples.empty():
                 x = self.HrvAnalysis.samples.get()
-                self.HrvAnalysis.adcbuffer[self.HrvAnalysis.index] = x
+                adcbuffer[self.HrvAnalysis.index] = x
                 self.HrvAnalysis.index += 1
                 self.HrvAnalysis.counter += 1
                 
@@ -535,17 +573,25 @@ class Kubios:
                     self.HrvAnalysis.count -= 1
                     self.OLED.fill(0)
                     self.OLED.text("Measuring for", 0, 0, 1)
-                    self.OLED.text(f"{self.HrvAnalysis.count} seconds", 0, 16, 1)
-                    self.OLED.text("Please wait", 0, 32, 1)
+                    self.OLED.text(f"{self.HrvAnalysis.count} seconds", 0, 10, 1)
+                    self.OLED.text("Please wait.", 0, 20, 1)
+                    self.OLED.text("Dont touch the", 0, 30, 1)
+                    self.OLED.text("Rotary knob", 0, 40, 1)
                     self.OLED.show()
                     
             
         self.HrvAnalysis.stop_timer()
         
-        filtered_signal = self.HrvAnalysis.low_pass_filter(self.HrvAnalysis.adcbuffer)
+        self.OLED.fill(0)
+        self.OLED.text("Processing data...", 0, 0, 1)
+        self.OLED.text("Dont touch the", 0, 20, 1)
+        self.OLED.text("Rotary knob", 0, 30, 1)
+        self.OLED.show()
+        
+        filtered_signal = self.HrvAnalysis.low_pass_filter(adcbuffer)
         peak_to_peak = self.HrvAnalysis.peak_to_peak_intervals(filtered_signal)
         smoothed_peaks = self.HrvAnalysis.moving_average(peak_to_peak)
-        print(smoothed_peaks)
+        
         
         sendtokubios = {
             "id" : 123,
@@ -557,7 +603,7 @@ class Kubios:
         try:
             mqtt_client=self.connect_mqtt()
         except Exception as e:
-            print(f"Failed to connect to MQTT: {e}")
+            
             self.OLED.fill(0)
             self.OLED.text("Error", 0, 0, 1)
             self.OLED.text("Please try again", 0, 10, 1)
@@ -569,10 +615,10 @@ class Kubios:
             topic = "kubios-request"
             message = ujson.dumps(sendtokubios)
             mqtt_client.publish(topic, message)
-            print(f"Sending to MQTT: {topic} -> {message}")
+            
             
         except Exception as e:
-            print(f"Failed to send MQTT message: {e}")
+            
             self.OLED.fill(0)
             self.OLED.text("Error", 0, 0, 1)
             self.OLED.text("Please try again", 0, 10, 1)
@@ -583,7 +629,7 @@ class Kubios:
             try:
                 mqtt_client.wait_msg()
             except Exception as e:
-                print(f"Error during wait: {e}")
+                
                 self.OLED.fill(0)
                 self.OLED.text("Error", 0, 0, 1)
                 self.OLED.text("Please try again", 0, 10, 1)
@@ -601,7 +647,7 @@ class Kubios:
                     state = 0
         gc.collect()
         self.HrvAnalysis.analysis_done = True
-        
+      
 class History:
     def __init__(self, rotary_encoder):
         self.rotary_encoder = rotary_encoder
@@ -629,20 +675,20 @@ class History:
             #IF savedata.json EXISTS => load it to our self.save_data!
             with open("savedata.json", "r") as f: #with open("PATH", "r=READ") as VARIABLE
                 self.save_data = ujson.load(f) #loads json data and adds it to "save_data" -variable to keep it in sync for new entries. 
-                print("savedata.json file found.")
+                
         except:
             #IF savedata.json does NOT exist => create new savedata.json in root!
             new_data = ujson.dumps(self.save_data) #dump empty
             with open("savedata.json", "w") as f: #with open("PATH", "w=WRITE") as VARIABLE
                 f.write(new_data)    
-            print("Save data not found. Created new savedata.json file in to root directory.")
+            
     
     def erase_history(self):
         self.save_data.clear()
         
         with open("savedata.json", "w") as f: #with open("PATH", "w=WRITE") as VARIABLE
             ujson.dump(self.save_data, f)
-            print("Erased all history data.")
+            
     
     #creates a array obj of dictionary and appends it to our save_data variable and adds it to our savedata.json file.
     def save_measurement(self, ppi, hr, rmssd, sdnn):
@@ -666,7 +712,7 @@ class History:
         with open("savedata.json", "w") as f: #with open("PATH", "w=WRITE") as VARIABLE
             ujson.dump(self.save_data, f)
     
-        print(f"new .json data saved. slots: { len(self.save_data) }/{ self.max_save_data }")
+        
         
     def display_history(self, i):
         self.OLED.text(str( self.save_data[i]["Date"] ) , 0, 12, 1)
@@ -718,8 +764,8 @@ hr = HrMeasurement(rotary_encoder, SAMPLE_RATE)
 
 timer_on = False
 # Main loop
-
-if __name__ == "__main__":
+def main():
+    global timer_on
     while True:
         if state == 0:  # main menu
             if timer_on:
@@ -737,8 +783,8 @@ if __name__ == "__main__":
             kubios.execute()
         elif state == 4: # History
             hs.execute()
-            
+        
 
-
-
-
+if __name__ == "__main__":
+    time.sleep(1)
+    main()
